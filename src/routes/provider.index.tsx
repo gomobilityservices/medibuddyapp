@@ -78,7 +78,7 @@ function ProviderDashboard() {
       return;
     }
 
-    const success = withdrawEarnings(amt);
+    const success = await withdrawEarnings(amt);
     if (success) {
       toast.success(`Withdrawal request of ${money(amt)} submitted!`);
       setWithdrawOpen(false);
