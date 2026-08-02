@@ -376,7 +376,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   // ---------------------------------------------------------------- auth
   const signUp = useCallback(
     async (email: string, password: string, role: Role, profileData: any): Promise<boolean> => {
-      const metadata: Record<string, unknown> = {
+      const metadata: any = {
         role,
         name: profileData.name,
         photo: profileData.photo ?? "",
@@ -396,14 +396,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         metadata.preferred_customer_gender = profileData.preferredCustomerGender ?? "everyone";
       }
 
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
-          data: metadata,
-        },
-      });
+      const options: any = { data: metadata };
+      if (typeof window !== "undefined") options.emailRedirectTo = window.location.origin;
+
+      const { data, error } = await supabase.auth.signUp({ email, password, options });
       if (error) return false;
       if (data.session?.user) {
         setUserId(data.session.user.id);
