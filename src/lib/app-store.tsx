@@ -225,8 +225,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
 
     if (!rows || rows.length === 0) {
-      const { mockProviders } = await import("./mock-data");
-      setProviders(mockProviders);
+      const { providers: mockProviders } = await import("./mock-data");
+      setProviders(mockProviders ?? []);
       return;
     }
 
