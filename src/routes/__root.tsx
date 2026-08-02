@@ -124,16 +124,38 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+import { useStore } from "../lib/app-store";
+import { AuthPage } from "../components/AuthPage";
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
       <AppStoreProvider>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-        <Toaster position="top-center" />
+        <AppContent />
       </AppStoreProvider>
     </QueryClientProvider>
+  );
+}
+
+function AppContent() {
+  const { currentUser } = useStore();
+
+  if (!currentUser) {
+    return (
+      <>
+        <AuthPage />
+        <Toaster position="top-center" />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
+      <Toaster position="top-center" />
+    </>
   );
 }

@@ -3,8 +3,9 @@ import { Check, Star } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/app-store";
-import { clock, getProvider, money } from "@/lib/mock-data";
+import { clock, money } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/session/summary")({
   head: () => ({
@@ -20,16 +21,28 @@ export const Route = createFileRoute("/session/summary")({
 });
 
 function Summary() {
-  const { lastSummary } = useStore();
+  const { lastSummary, providers, submitReview } = useStore();
   const navigate = useNavigate();
   const [rated, setRated] = useState(0);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     if (!lastSummary) navigate({ to: "/", replace: true });
   }, [lastSummary, navigate]);
 
   if (!lastSummary) return null;
-  const provider = getProvider(lastSummary.providerId);
+  const provider = providers.find((p) => p.id === lastSummary.providerId);
+
+  const handleSubmitReview = () => {
+    if (rated < 1) {
+      toast.error("Please select a rating of at least 1 star");
+      return;
+    }
+    submitReview(lastSummary.providerId, rated, comment);
+    setSubmitted(true);
+    toast.success("Review submitted! Thank you.");
+  };
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[430px] flex-col justify-between bg-background px-5 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
@@ -59,11 +72,13 @@ function Summary() {
           </div>
         </div>
 
-        <div className="mt-4 rounded-3xl border border-border/60 bg-card p-5 text-center">
-          <p className="text-sm font-semibold text-foreground">How was it?</p>
-          <div className="mt-3 flex justify-center gap-2">
+        {/* Rating and optional review comments */}
+        <div className="mt-4 rounded-3xl border border-border/60 bg-card p-5 text-center space-y-4">
+          <p className="text-sm font-semibold text-foreground">How was your session?</p>
+          <div className="flex justify-center gap-2">
             {[1, 2, 3, 4, 5].map((n) => (
               <button
+                disabled={submitted}
                 key={n}
                 type="button"
                 aria-label={`${n} stars`}
@@ -72,14 +87,43 @@ function Summary() {
               >
                 <Star
                   className={cn(
-                    "h-8 w-8",
-                    n <= rated ? "fill-warning text-warning" : "text-muted-foreground",
+                    "h-8 w-8 transition-transform active:scale-110",
+                    n <= rated ? "fill-warning text-warning" : "text-muted-foreground"
                   )}
                 />
               </button>
             ))}
           </div>
-          {rated > 0 && <p className="mt-2 text-xs text-primary">Thanks — rating saved</p>}
+
+          {rated > 0 && !submitted && (
+            <div className="space-y-3 animate-fade-in text-left">
+              <div>
+                <label htmlFor="comment" className="text-xs text-muted-foreground">
+                  Leave an optional review comment
+                </label>
+                <textarea
+                  id="comment"
+                  rows={3}
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Tell us what you liked or how they can improve..."
+                  className="mt-1.5 w-full bg-muted border border-border/60 rounded-xl p-2.5 text-xs text-foreground outline-none resize-none"
+                />
+              </div>
+              <Button
+                onClick={handleSubmitReview}
+                className="w-full h-10 rounded-xl text-xs font-semibold bg-[#00f5d4] hover:bg-[#00e1c2] text-[#0d1b2a]"
+              >
+                Submit Feedback
+              </Button>
+            </div>
+          )}
+
+          {submitted && (
+            <p className="text-xs text-emerald-500 font-bold">
+              Thanks! Your feedback has been recorded.
+            </p>
+          )}
         </div>
       </div>
 

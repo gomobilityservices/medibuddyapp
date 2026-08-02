@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as HelpRouteImport } from './routes/help'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as ProviderIndexRouteImport } from './routes/provider.index'
@@ -23,6 +25,16 @@ import { Route as SessionChatIdRouteImport } from './routes/session.chat.$id'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileRoute = ProfileRouteImport.update({
@@ -73,6 +85,8 @@ const SessionChatIdRoute = SessionChatIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/help': typeof HelpRoute
+  '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/wallet': typeof WalletRoute
   '/provider/earnings': typeof ProviderEarningsRoute
@@ -85,6 +99,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/help': typeof HelpRoute
+  '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/wallet': typeof WalletRoute
   '/provider/earnings': typeof ProviderEarningsRoute
@@ -98,6 +114,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/help': typeof HelpRoute
+  '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/wallet': typeof WalletRoute
   '/provider/earnings': typeof ProviderEarningsRoute
@@ -112,6 +130,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/help'
+    | '/privacy'
     | '/profile'
     | '/wallet'
     | '/provider/earnings'
@@ -124,6 +144,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/help'
+    | '/privacy'
     | '/profile'
     | '/wallet'
     | '/provider/earnings'
@@ -136,6 +158,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/help'
+    | '/privacy'
     | '/profile'
     | '/wallet'
     | '/provider/earnings'
@@ -149,6 +173,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  HelpRoute: typeof HelpRoute
+  PrivacyRoute: typeof PrivacyRoute
   ProfileRoute: typeof ProfileRoute
   WalletRoute: typeof WalletRoute
   ProviderEarningsRoute: typeof ProviderEarningsRoute
@@ -167,6 +193,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile': {
@@ -237,6 +277,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  HelpRoute: HelpRoute,
+  PrivacyRoute: PrivacyRoute,
   ProfileRoute: ProfileRoute,
   WalletRoute: WalletRoute,
   ProviderEarningsRoute: ProviderEarningsRoute,

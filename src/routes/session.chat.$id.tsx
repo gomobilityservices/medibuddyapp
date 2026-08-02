@@ -29,14 +29,15 @@ const replies = [
 
 function ChatSession() {
   const { id } = Route.useParams();
-  const provider = getProvider(id);
-  const { session, endSession, lastSummary, balance } = useStore();
+  const { session, endSession, lastSummary, balance, providers } = useStore();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<{ from: "me" | "them"; text: string }[]>([
     { from: "them", text: "Hey, I'm here. What's on your mind today?" },
   ]);
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+
+  const provider = providers.find((p) => p.id === id);
 
   useEffect(() => {
     if (session) return;
@@ -94,12 +95,13 @@ function ChatSession() {
 
         <div
           className={cn(
-            "mt-3 grid grid-cols-3 divide-x divide-border/60 rounded-2xl bg-muted/60 py-2 text-center",
+            "mt-3 grid grid-cols-4 divide-x divide-border/60 rounded-2xl bg-muted/60 py-2 text-center",
             low && "bg-destructive/15",
           )}
         >
           <Meter label="Elapsed" value={clock(session.elapsed)} />
           <Meter label="Spent" value={money(spent)} />
+          <Meter label="Balance" value={money(balance)} />
           <Meter
             label="Time left"
             value={clock(remaining)}
