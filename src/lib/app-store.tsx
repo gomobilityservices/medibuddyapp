@@ -4,10 +4,32 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { providers as mockProviders, type Provider, type Review, type Gender } from "./mock-data";
+import { supabase } from "@/integrations/supabase/client";
+import { type Provider, type Review, type Gender } from "./mock-data";
+import p1 from "@/assets/p1.jpg";
+import p2 from "@/assets/p2.jpg";
+import p3 from "@/assets/p3.jpg";
+import p4 from "@/assets/p4.jpg";
+import p5 from "@/assets/p5.jpg";
+import p6 from "@/assets/p6.jpg";
+
+const assetPhotos: Record<string, string> = {
+  "asset:p1": p1,
+  "asset:p2": p2,
+  "asset:p3": p3,
+  "asset:p4": p4,
+  "asset:p5": p5,
+  "asset:p6": p6,
+};
+
+function resolvePhoto(photo: string | null | undefined) {
+  if (!photo) return "";
+  return assetPhotos[photo] ?? photo;
+}
 
 export type Role = "customer" | "provider";
 export type Mode = "chat" | "call";
@@ -64,11 +86,14 @@ export interface ProviderProfile {
   sessions: number;
   responseSec: number;
   reviewsList: Review[];
+  /** provider listing row id (differs from the auth user id) */
+  listingId: string;
 }
 
 export type CurrentUser = CustomerProfile | ProviderProfile;
 
 export interface ActiveSession {
+  sessionId: string | null;
   providerId: string;
   mode: Mode;
   rate: number;
@@ -87,16 +112,17 @@ export interface SessionSummary {
 }
 
 interface Store {
+  loading: boolean;
   currentUser: CurrentUser | null;
   providers: Provider[];
-  signUp: (email: string, passwordHash: string, role: Role, profileData: any) => boolean;
-  login: (email: string, passwordHash: string) => boolean;
+  signUp: (email: string, password: string, role: Role, profileData: any) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   updateProfile: (data: any) => void;
   toggleSavedProvider: (providerId: string) => void;
   toggleAvailability: (available: boolean) => void;
   submitReview: (providerId: string, rating: number, comment: string) => void;
-  withdrawEarnings: (amount: number) => boolean;
+  withdrawEarnings: (amount: number) => Promise<boolean>;
   balance: number;
   transactions: Txn[];
   topUp: (amount: number) => void;
@@ -113,209 +139,371 @@ interface Store {
 
 const StoreContext = createContext<Store | null>(null);
 
-const LOCAL_USERS_KEY = "medibuddy_users_db";
-const LOCAL_PROVIDERS_KEY = "medibuddy_providers_db";
-const LOCAL_CURRENT_USER_KEY = "medibuddy_current_user";
+const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
+
+function mapProvider(row: any, reviewsList: Review[]): Provider {
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    photo: resolvePhoto(row.photo),
+    gender: (row.gender ?? "female") as Gender,
+    rate: num(row.rate_chat),
+    rateCall: num(row.rate_call),
+    rateChat: num(row.rate_chat),
+    rating: num(row.rating),
+    reviews: row.reviews ?? reviewsList.length,
+    languages: row.languages ?? [],
+    description: row.description ?? "",
+    area: row.area ?? "",
+    distanceKm: num(row.distance_km),
+    available: !!row.available,
+    connectsWith:
+      row.preferred_customer_gender === "female"
+        ? "Women"
+        : row.preferred_customer_gender === "male"
+          ? "Men"
+          : "Anyone",
+    preferredCustomerGender: row.preferred_customer_gender ?? "everyone",
+    categories: row.categories ?? [],
+    experience: row.experience ?? "",
+    sessions: row.sessions ?? 0,
+    responseSec: row.response_sec ?? 15,
+    reviewsList,
+  };
+}
+
+function mapTxn(row: any): Txn {
+  return {
+    id: row.id,
+    kind: row.kind,
+    type: row.type,
+    label: row.label,
+    sub: row.sub ?? "",
+    amount: num(row.amount),
+    timestamp: new Date(row.created_at).toLocaleString(),
+  };
+}
+
+function mapReview(row: any): Review {
+  return {
+    id: row.id,
+    customerName: row.customer_name ?? "Guest",
+    rating: row.rating,
+    comment: row.comment ?? "",
+    date: new Date(row.created_at).toLocaleDateString(),
+  };
+}
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
-  // Load users db
-  const [usersDb, setUsersDb] = useState<Record<string, { passwordHash: string; profile: CurrentUser }>>(() => {
-    if (typeof window === "undefined") return {};
-    const local = localStorage.getItem(LOCAL_USERS_KEY);
-    return local ? JSON.parse(local) : {};
-  });
-
-  // Load providers db
-  const [providers, setProviders] = useState<Provider[]>(() => {
-    if (typeof window === "undefined") return mockProviders;
-    const local = localStorage.getItem(LOCAL_PROVIDERS_KEY);
-    if (local) {
-      return JSON.parse(local);
-    } else {
-      localStorage.setItem(LOCAL_PROVIDERS_KEY, JSON.stringify(mockProviders));
-      return mockProviders;
-    }
-  });
-
-  // Load current user
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
-    if (typeof window === "undefined") return null;
-    const local = localStorage.getItem(LOCAL_CURRENT_USER_KEY);
-    return local ? JSON.parse(local) : null;
-  });
-
+  const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [session, setSession] = useState<ActiveSession | null>(null);
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
+  const endingRef = useRef(false);
 
-  // Sync users database helper
-  const syncUsersDb = useCallback((newDb: Record<string, { passwordHash: string; profile: CurrentUser }>) => {
-    setUsersDb(newDb);
-    localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(newDb));
+  // ---------------------------------------------------------------- loaders
+  const loadProviders = useCallback(async () => {
+    const [{ data: rows }, { data: reviewRows }] = await Promise.all([
+      supabase.from("providers").select("*").order("created_at", { ascending: true }),
+      supabase.from("reviews").select("*").order("created_at", { ascending: false }),
+    ]);
+    const byProvider = new Map<string, Review[]>();
+    (reviewRows ?? []).forEach((r: any) => {
+      const list = byProvider.get(r.provider_id) ?? [];
+      list.push(mapReview(r));
+      byProvider.set(r.provider_id, list);
+    });
+    setProviders((rows ?? []).map((row: any) => mapProvider(row, byProvider.get(row.id) ?? [])));
   }, []);
 
-  // Sync providers helper
-  const syncProviders = useCallback((newProviders: Provider[]) => {
-    setProviders(newProviders);
-    localStorage.setItem(LOCAL_PROVIDERS_KEY, JSON.stringify(newProviders));
-  }, []);
-
-  // Sync current user helper
-  const syncCurrentUser = useCallback((user: CurrentUser | null) => {
-    setCurrentUser(user);
-    if (user) {
-      localStorage.setItem(LOCAL_CURRENT_USER_KEY, JSON.stringify(user));
-      // Also update in users database
-      setUsersDb((prev) => {
-        const next = { ...prev };
-        if (next[user.email]) {
-          next[user.email] = { ...next[user.email], profile: user };
-          localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(next));
-        }
-        return next;
-      });
-
-      // If user is a provider, update details in providers search list as well
-      if (user.role === "provider") {
-        setProviders((prev) => {
-          const next = prev.map((p) => (p.id === user.id ? { ...p, ...user } : p));
-          localStorage.setItem(LOCAL_PROVIDERS_KEY, JSON.stringify(next));
-          return next;
-        });
-      }
-    } else {
-      localStorage.removeItem(LOCAL_CURRENT_USER_KEY);
+  const loadUser = useCallback(async (uid: string, email: string) => {
+    const { data: profile } = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
+    if (!profile) {
+      setCurrentUser(null);
+      return;
     }
+
+    const { data: txnRows } = await supabase
+      .from("transactions")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    const transactions = (txnRows ?? []).map(mapTxn);
+
+    if (profile.role === "customer") {
+      const [{ data: savedRows }, { data: sessionRows }] = await Promise.all([
+        supabase.from("saved_providers").select("provider_id"),
+        supabase
+          .from("sessions")
+          .select("provider_id, mode, seconds, ended_at")
+          .eq("status", "ended")
+          .order("started_at", { ascending: false })
+          .limit(50),
+      ]);
+
+      const nameFor = (id: string) => providers.find((p) => p.id === id)?.name ?? "Provider";
+      const history = (sessionRows ?? []).map((s: any) => ({
+        providerId: s.provider_id,
+        providerName: nameFor(s.provider_id),
+        duration: s.seconds ?? 0,
+        date: s.ended_at ? new Date(s.ended_at).toLocaleString() : "",
+        mode: s.mode as Mode,
+      }));
+
+      setCurrentUser({
+        id: profile.id,
+        role: "customer",
+        email: profile.email || email,
+        name: profile.name,
+        gender: profile.gender,
+        photo: resolvePhoto(profile.photo),
+        balance: num(profile.balance),
+        transactions,
+        savedProviders: (savedRows ?? []).map((r: any) => r.provider_id),
+        recentChats: history.filter((h) => h.mode === "chat").map(({ mode, ...rest }) => rest),
+        recentCalls: history.filter((h) => h.mode === "call").map(({ mode, ...rest }) => rest),
+      });
+      return;
+    }
+
+    const [{ data: listing }, { data: withdrawalRows }] = await Promise.all([
+      supabase.from("providers").select("*").eq("user_id", uid).maybeSingle(),
+      supabase.from("withdrawals").select("*").order("created_at", { ascending: false }),
+    ]);
+
+    const { data: reviewRows } = listing
+      ? await supabase
+          .from("reviews")
+          .select("*")
+          .eq("provider_id", listing.id)
+          .order("created_at", { ascending: false })
+      : { data: [] as any[] };
+
+    setCurrentUser({
+      id: profile.id,
+      listingId: listing?.id ?? profile.id,
+      role: "provider",
+      email: profile.email || email,
+      name: profile.name,
+      username: listing?.username ?? "",
+      photo: resolvePhoto(listing?.photo || profile.photo),
+      gender: (listing?.gender ?? "female") as Gender,
+      languages: listing?.languages ?? [],
+      area: listing?.area ?? "",
+      description: listing?.description ?? "",
+      categories: listing?.categories ?? [],
+      experience: listing?.experience ?? "",
+      rating: num(listing?.rating),
+      reviews: listing?.reviews ?? 0,
+      rateCall: num(listing?.rate_call),
+      rateChat: num(listing?.rate_chat),
+      rate: num(listing?.rate_chat),
+      available: !!listing?.available,
+      preferredCustomerGender: (listing?.preferred_customer_gender ?? "everyone") as
+        | "male"
+        | "female"
+        | "everyone",
+      walletBalance: num(profile.wallet_balance),
+      totalEarnings: num(profile.total_earnings),
+      pendingEarnings: num(profile.pending_earnings),
+      transactions,
+      withdrawals: (withdrawalRows ?? []).map((w: any) => ({
+        id: w.id,
+        amount: num(w.amount),
+        status: w.status,
+        date: new Date(w.created_at).toLocaleDateString(),
+      })),
+      sessions: listing?.sessions ?? 0,
+      responseSec: listing?.response_sec ?? 15,
+      reviewsList: (reviewRows ?? []).map(mapReview),
+    });
+  }, [providers]);
+
+  const refresh = useCallback(async () => {
+    await loadProviders();
+    const { data } = await supabase.auth.getUser();
+    if (data.user) await loadUser(data.user.id, data.user.email ?? "");
+  }, [loadProviders, loadUser]);
+
+  // ---------------------------------------------------------------- boot
+  useEffect(() => {
+    let active = true;
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (!active) return;
+      if (event === "SIGNED_OUT") {
+        setUserId(null);
+        setCurrentUser(null);
+        setSession(null);
+        setLastSummary(null);
+        return;
+      }
+      setUserId(s?.user?.id ?? null);
+    });
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!active) return;
+      await loadProviders();
+      if (data.user) {
+        setUserId(data.user.id);
+        await loadUser(data.user.id, data.user.email ?? "");
+      }
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auth functions
+  // reload the profile whenever the signed-in user changes
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) await loadUser(data.user.id, data.user.email ?? "");
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // ---------------------------------------------------------------- auth
   const signUp = useCallback(
-    (email: string, passwordHash: string, role: Role, profileData: any): boolean => {
-      if (usersDb[email]) return false; // email already exists
-
-      const id = `${role}_${Date.now()}`;
-      let profile: CurrentUser;
-
+    async (email: string, password: string, role: Role, profileData: any): Promise<boolean> => {
+      const metadata: Record<string, unknown> = {
+        role,
+        name: profileData.name,
+        photo: profileData.photo ?? "",
+      };
       if (role === "customer") {
-        profile = {
-          id,
-          role: "customer",
-          email,
-          name: profileData.name || "Customer",
-          gender: profileData.gender || "Everyone",
-          photo: profileData.photo || `https://api.dicebear.com/7.x/adventurer/svg?seed=${id}`,
-          balance: 0.0,
-          transactions: [],
-          savedProviders: [],
-          recentChats: [],
-          recentCalls: [],
-        };
+        metadata.gender = profileData.gender ?? "everyone";
       } else {
-        profile = {
-          id,
-          role: "provider",
-          email,
-          name: profileData.name || "Provider",
-          username: profileData.username || `user_${id}`,
-          photo: profileData.photo || `https://api.dicebear.com/7.x/bottts/svg?seed=${id}`,
-          gender: profileData.gender || "female",
-          languages: profileData.languages || ["English"],
-          area: profileData.area || "Mumbai",
-          description: profileData.description || "I'm a listener here to talk with you.",
-          categories: profileData.categories || ["General Chat"],
-          experience: profileData.experience || "1 year",
-          rating: 5.0,
-          reviews: 0,
-          rateCall: profileData.rateCall || 1.5,
-          rateChat: profileData.rateChat || 1.0,
-          rate: profileData.rateChat || 1.0,
-          available: true,
-          preferredCustomerGender: profileData.preferredCustomerGender || "everyone",
-          walletBalance: 0,
-          totalEarnings: 0,
-          pendingEarnings: 0,
-          transactions: [],
-          withdrawals: [],
-          sessions: 0,
-          responseSec: 15,
-          reviewsList: [],
-        };
-
-        // Add to providers search database
-        const newProvider: Provider = {
-          id: profile.id,
-          name: profile.name,
-          username: profile.username,
-          photo: profile.photo,
-          gender: profile.gender,
-          rate: profile.rate,
-          rateCall: profile.rateCall,
-          rateChat: profile.rateChat,
-          rating: profile.rating,
-          reviews: profile.reviews,
-          languages: profile.languages,
-          description: profile.description,
-          area: profile.area,
-          distanceKm: 1.0 + Math.random() * 8.0,
-          available: profile.available,
-          connectsWith: "Anyone",
-          preferredCustomerGender: profile.preferredCustomerGender,
-          categories: profile.categories,
-          experience: profile.experience,
-          sessions: profile.sessions,
-          responseSec: profile.responseSec,
-          reviewsList: profile.reviewsList,
-        };
-        syncProviders([...providers, newProvider]);
+        metadata.username = profileData.username;
+        metadata.provider_gender = profileData.gender ?? "female";
+        metadata.languages = profileData.languages ?? ["English"];
+        metadata.area = profileData.area ?? "";
+        metadata.description = profileData.description ?? "";
+        metadata.categories = profileData.categories ?? ["General Chat"];
+        metadata.experience = profileData.experience ?? "";
+        metadata.rate_call = profileData.rateCall ?? 1.5;
+        metadata.rate_chat = profileData.rateChat ?? 1.0;
+        metadata.preferred_customer_gender = profileData.preferredCustomerGender ?? "everyone";
       }
 
-      const newDb = { ...usersDb, [email]: { passwordHash, profile } };
-      syncUsersDb(newDb);
-      syncCurrentUser(profile);
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+          data: metadata,
+        },
+      });
+      if (error) return false;
+      if (data.session?.user) {
+        setUserId(data.session.user.id);
+        await loadProviders();
+      }
       return true;
     },
-    [usersDb, providers, syncCurrentUser, syncProviders, syncUsersDb]
+    [loadProviders]
   );
 
   const login = useCallback(
-    (email: string, passwordHash: string): boolean => {
-      const match = usersDb[email];
-      if (match && match.passwordHash === passwordHash) {
-        syncCurrentUser(match.profile);
-        return true;
-      }
-      return false;
+    async (email: string, password: string): Promise<boolean> => {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.user) return false;
+      await loadProviders();
+      setUserId(data.user.id);
+      return true;
     },
-    [usersDb, syncCurrentUser]
+    [loadProviders]
   );
 
   const logout = useCallback(() => {
-    syncCurrentUser(null);
     setSession(null);
     setLastSummary(null);
-  }, [syncCurrentUser]);
+    void supabase.auth.signOut();
+    setCurrentUser(null);
+    setUserId(null);
+  }, []);
 
-  // Profile update
+  // ---------------------------------------------------------------- profile
   const updateProfile = useCallback(
     (data: any) => {
       if (!currentUser) return;
-      const updated = { ...currentUser, ...data };
-      if (currentUser.role === "provider") {
-        updated.rate = updated.rateChat;
+      const merged: any = { ...currentUser, ...data };
+      if (currentUser.role === "provider" && data.rateChat !== undefined) {
+        merged.rate = merged.rateChat;
       }
-      syncCurrentUser(updated);
+      setCurrentUser(merged);
+
+      const profilePatch: Record<string, unknown> = {};
+      if (data.name !== undefined) profilePatch.name = data.name;
+      if (data.gender !== undefined && currentUser.role === "customer") profilePatch.gender = data.gender;
+      if (data.photo !== undefined && currentUser.role === "customer") profilePatch.photo = data.photo;
+
+      void (async () => {
+        if (Object.keys(profilePatch).length > 0) {
+          await supabase.from("profiles").update(profilePatch).eq("id", currentUser.id);
+        }
+
+        if (currentUser.role === "provider") {
+          const listingPatch: Record<string, unknown> = {};
+          if (data.name !== undefined) listingPatch.name = data.name;
+          if (data.username !== undefined) listingPatch.username = data.username;
+          if (data.photo !== undefined) listingPatch.photo = data.photo;
+          if (data.gender !== undefined) listingPatch.gender = data.gender;
+          if (data.languages !== undefined) listingPatch.languages = data.languages;
+          if (data.area !== undefined) listingPatch.area = data.area;
+          if (data.description !== undefined) listingPatch.description = data.description;
+          if (data.categories !== undefined) listingPatch.categories = data.categories;
+          if (data.experience !== undefined) listingPatch.experience = data.experience;
+          if (data.rateCall !== undefined) listingPatch.rate_call = data.rateCall;
+          if (data.rateChat !== undefined) listingPatch.rate_chat = data.rateChat;
+          if (data.available !== undefined) listingPatch.available = data.available;
+          if (data.preferredCustomerGender !== undefined)
+            listingPatch.preferred_customer_gender = data.preferredCustomerGender;
+
+          if (Object.keys(listingPatch).length > 0) {
+            await supabase.from("providers").update(listingPatch).eq("user_id", currentUser.id);
+            await loadProviders();
+          }
+        }
+      })();
     },
-    [currentUser, syncCurrentUser]
+    [currentUser, loadProviders]
   );
 
   const toggleSavedProvider = useCallback(
     (providerId: string) => {
       if (!currentUser || currentUser.role !== "customer") return;
-      const saved = currentUser.savedProviders.includes(providerId)
+      const isSaved = currentUser.savedProviders.includes(providerId);
+      const saved = isSaved
         ? currentUser.savedProviders.filter((id) => id !== providerId)
         : [...currentUser.savedProviders, providerId];
-      updateProfile({ savedProviders: saved });
+      setCurrentUser({ ...currentUser, savedProviders: saved });
+
+      void (async () => {
+        if (isSaved) {
+          await supabase
+            .from("saved_providers")
+            .delete()
+            .eq("user_id", currentUser.id)
+            .eq("provider_id", providerId);
+        } else {
+          await supabase
+            .from("saved_providers")
+            .insert({ user_id: currentUser.id, provider_id: providerId });
+        }
+      })();
     },
-    [currentUser, updateProfile]
+    [currentUser]
   );
 
   const toggleAvailability = useCallback(
@@ -326,100 +514,45 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [currentUser, updateProfile]
   );
 
-  // Submit review
   const submitReview = useCallback(
     (providerId: string, rating: number, comment: string) => {
-      if (!currentUser) return;
-      setProviders((prevProviders) => {
-        const next = prevProviders.map((p) => {
-          if (p.id === providerId) {
-            const newReview: Review = {
-              id: `rev_${Date.now()}`,
-              customerName: currentUser.name,
-              rating,
-              comment,
-              date: "Just now",
-            };
-            const list = [newReview, ...p.reviewsList];
-            const sum = list.reduce((a, b) => a + b.rating, 0);
-            const avgRating = sum / list.length;
-            const updated = {
-              ...p,
-              reviewsList: list,
-              reviews: list.length,
-              rating: Number(avgRating.toFixed(1)),
-            };
-
-            // If current user is this provider, update their profile too
-            if (currentUser.id === providerId) {
-              setTimeout(() => {
-                syncCurrentUser({
-                  ...currentUser,
-                  reviewsList: list,
-                  reviews: list.length,
-                  rating: Number(avgRating.toFixed(1)),
-                } as CurrentUser);
-              }, 50);
-            }
-
-            // Sync user database for the provider profile if registered
-            Object.values(usersDb).forEach((u) => {
-              if (u.profile.id === providerId) {
-                u.profile.rating = Number(avgRating.toFixed(1));
-                u.profile.reviews = list.length;
-                (u.profile as ProviderProfile).reviewsList = list;
-              }
-            });
-            localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(usersDb));
-
-            return updated;
-          }
-          return p;
+      void (async () => {
+        await supabase.rpc("submit_review", {
+          p_provider_id: providerId,
+          p_rating: rating,
+          p_comment: comment,
         });
-        localStorage.setItem(LOCAL_PROVIDERS_KEY, JSON.stringify(next));
-        return next;
-      });
+        await refresh();
+      })();
     },
-    [currentUser, usersDb, syncCurrentUser]
+    [refresh]
   );
 
-  // Withdraw earnings
   const withdrawEarnings = useCallback(
-    (amount: number): boolean => {
+    async (amount: number): Promise<boolean> => {
       if (!currentUser || currentUser.role !== "provider") return false;
-      const profile = currentUser as ProviderProfile;
-      if (profile.walletBalance < amount) return false;
-
-      const newTxn: Txn = {
-        id: `w_${Date.now()}`,
-        kind: "debit",
-        type: "withdrawal",
-        label: "Earnings Payout Request",
-        sub: `Payout to bank account`,
-        amount,
-        timestamp: new Date().toLocaleString(),
-      };
-
-      const newWithdrawal = {
-        id: `withdraw_${Date.now()}`,
-        amount,
-        status: "pending" as const,
-        date: new Date().toLocaleDateString(),
-      };
-
-      updateProfile({
-        walletBalance: profile.walletBalance - amount,
-        pendingEarnings: profile.pendingEarnings + amount,
-        transactions: [newTxn, ...profile.transactions],
-        withdrawals: [newWithdrawal, ...profile.withdrawals],
-      });
+      if (currentUser.walletBalance < amount) return false;
+      const { data, error } = await supabase.rpc("request_withdrawal", { p_amount: amount });
+      if (error || data === false) return false;
+      await refresh();
       return true;
     },
-    [currentUser, updateProfile]
+    [currentUser, refresh]
   );
 
-  // Start Session
-  // Start Session
+  const topUp = useCallback(
+    (amount: number) => {
+      if (!currentUser || currentUser.role !== "customer") return;
+      setCurrentUser({ ...currentUser, balance: currentUser.balance + amount });
+      void (async () => {
+        await supabase.rpc("top_up_wallet", { p_amount: amount });
+        await refresh();
+      })();
+    },
+    [currentUser, refresh]
+  );
+
+  // ---------------------------------------------------------------- sessions
   const startSession = useCallback(
     (providerId: string, mode: Mode) => {
       const p = providers.find((pv) => pv.id === providerId);
@@ -428,29 +561,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const rate = mode === "call" ? p.rateCall : p.rateChat;
       if (currentUser.balance < rate) return;
 
-      // 1. Make provider unavailable in search & database
-      setProviders((prevProviders) => {
-        const next = prevProviders.map((pv) => {
-          if (pv.id === providerId) {
-            return { ...pv, available: false };
-          }
-          return pv;
-        });
-        localStorage.setItem(LOCAL_PROVIDERS_KEY, JSON.stringify(next));
-        return next;
-      });
-
-      Object.entries(usersDb).forEach(([email, data]) => {
-        if (data.profile.id === providerId && data.profile.role === "provider") {
-          const profile = data.profile as ProviderProfile;
-          const updatedProfile = { ...profile, available: false };
-          usersDb[email] = { ...data, profile: updatedProfile };
-        }
-      });
-      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(usersDb));
-
       setLastSummary(null);
       setSession({
+        sessionId: null,
         providerId,
         mode,
         rate,
@@ -458,107 +571,41 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         elapsed: 0,
         accumulatedCharges: 0,
       });
+
+      void (async () => {
+        const { data, error } = await supabase.rpc("start_session", {
+          p_provider_id: providerId,
+          p_mode: mode,
+        });
+        if (error || !data) {
+          setSession(null);
+          return;
+        }
+        const row: any = Array.isArray(data) ? data[0] : data;
+        setSession((curr) => (curr ? { ...curr, sessionId: row.id } : curr));
+        setProviders((prev) =>
+          prev.map((pv) => (pv.id === providerId ? { ...pv, available: false } : pv))
+        );
+      })();
     },
-    [providers, currentUser, usersDb]
+    [providers, currentUser]
   );
 
-  // End Session
   const endSession = useCallback(() => {
+    if (endingRef.current) return;
+    endingRef.current = true;
+
     setSession((current) => {
-      if (!current) return null;
+      if (!current) {
+        endingRef.current = false;
+        return null;
+      }
+
       const minutes = Math.max(1, Math.ceil(current.elapsed / 60));
       const amount = Math.min(minutes * current.rate, current.startBalance);
       const balanceAfter = Math.max(0, current.startBalance - amount);
 
-      const p = providers.find((pv) => pv.id === current.providerId);
-      const providerName = p?.name ?? "Provider";
-
-      // 1. Deduct customer balance and record txn
-      if (currentUser && currentUser.role === "customer") {
-        const txnId = `s_${Date.now()}`;
-        const newTxn: Txn = {
-          id: txnId,
-          kind: "debit",
-          type: current.mode === "call" ? "session_call" : "session_chat",
-          label: `${current.mode === "call" ? "Call" : "Chat"} with ${providerName}`,
-          sub: `${minutes} min at Rs ${current.rate.toFixed(2)}/min`,
-          amount,
-          timestamp: new Date().toLocaleString(),
-        };
-
-        const sessionHistoryRow = {
-          providerId: current.providerId,
-          providerName,
-          duration: current.elapsed,
-          date: new Date().toLocaleString(),
-        };
-
-        const recentChats =
-          current.mode === "chat"
-            ? [sessionHistoryRow, ...currentUser.recentChats]
-            : currentUser.recentChats;
-        const recentCalls =
-          current.mode === "call"
-            ? [sessionHistoryRow, ...currentUser.recentCalls]
-            : currentUser.recentCalls;
-
-        syncCurrentUser({
-          ...currentUser,
-          balance: balanceAfter,
-          transactions: [newTxn, ...currentUser.transactions],
-          recentChats,
-          recentCalls,
-        });
-      }
-
-      // 2. Credit provider earnings (with 10% commission deduction)
-      const commission = amount * 0.1;
-      const earnings = amount - commission;
-
-      // Update provider in databases and restore availability to true
-      setProviders((prevProviders) => {
-        const next = prevProviders.map((pv) => {
-          if (pv.id === current.providerId) {
-            return {
-              ...pv,
-              sessions: pv.sessions + 1,
-              available: true,
-            };
-          }
-          return pv;
-        });
-        localStorage.setItem(LOCAL_PROVIDERS_KEY, JSON.stringify(next));
-        return next;
-      });
-
-      // Update specific provider profile record and restore available state to true
-      Object.entries(usersDb).forEach(([email, data]) => {
-        if (data.profile.id === current.providerId && data.profile.role === "provider") {
-          const profile = data.profile as ProviderProfile;
-          const pTxn: Txn = {
-            id: `e_${Date.now()}`,
-            kind: "credit",
-            type: current.mode === "call" ? "session_call" : "session_chat",
-            label: `Earning from ${current.mode === "call" ? "Call" : "Chat"}`,
-            sub: `${minutes} min session (10% comm deducted)`,
-            amount: earnings,
-            timestamp: new Date().toLocaleString(),
-          };
-
-          const updatedProfile: ProviderProfile = {
-            ...profile,
-            walletBalance: profile.walletBalance + earnings,
-            totalEarnings: profile.totalEarnings + earnings,
-            sessions: profile.sessions + 1,
-            transactions: [pTxn, ...profile.transactions],
-            available: true,
-          };
-
-          usersDb[email] = { ...data, profile: updatedProfile };
-        }
-      });
-      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(usersDb));
-
+      // optimistic summary so the summary screen renders instantly
       setLastSummary({
         providerId: current.providerId,
         mode: current.mode,
@@ -568,11 +615,36 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         balanceAfter,
       });
 
+      const sessionId = current.sessionId;
+      const seconds = current.elapsed;
+
+      void (async () => {
+        if (sessionId) {
+          const { data } = await supabase.rpc("end_session", {
+            p_session_id: sessionId,
+            p_seconds: seconds,
+          });
+          const result: any = data;
+          if (result) {
+            setLastSummary({
+              providerId: result.provider_id,
+              mode: result.mode,
+              seconds: result.seconds,
+              minutes: result.minutes,
+              amount: Number(result.amount),
+              balanceAfter: Number(result.balance_after),
+            });
+          }
+        }
+        await refresh();
+        endingRef.current = false;
+      })();
+
       return null;
     });
-  }, [currentUser, providers, syncCurrentUser, usersDb]);
+  }, [refresh]);
 
-  // Real-time Session Clock & Automatic Minute Billing
+  // Real-time session clock + automatic minute billing guard
   useEffect(() => {
     if (!session) return;
     const intervalId = window.setInterval(() => {
@@ -582,15 +654,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const currentMinutes = Math.ceil(curr.elapsed / 60);
         const nextMinutes = Math.ceil(nextElapsed / 60);
 
-        // If a new minute starts, we perform billing checks
         if (nextMinutes > currentMinutes) {
           const billingCost = nextMinutes * curr.rate;
           if (billingCost > curr.startBalance) {
-            // Customer ran out of balance! Auto end call
             window.clearInterval(intervalId);
-            setTimeout(() => {
-              endSession();
-            }, 10);
+            setTimeout(() => endSession(), 10);
             return curr;
           }
         }
@@ -602,68 +670,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(intervalId);
   }, [session !== null, endSession]);
 
-  // Customer topUp
-  const topUp = useCallback(
-    (amount: number) => {
-      if (!currentUser || currentUser.role !== "customer") return;
-      const newTxn: Txn = {
-        id: `topup_${Date.now()}`,
-        kind: "credit",
-        type: "topup",
-        label: "Wallet Top-up",
-        sub: "Card ending 4242",
-        amount,
-        timestamp: new Date().toLocaleString(),
-      };
-      updateProfile({
-        balance: currentUser.balance + amount,
-        transactions: [newTxn, ...currentUser.transactions],
-      });
-    },
-    [currentUser, updateProfile]
-  );
-
-  // Fallbacks for backwards compatibility
+  // ---------------------------------------------------------------- derived
   const balance = useMemo(() => {
     if (!currentUser) return 0;
-    return currentUser.role === "customer"
-      ? currentUser.balance
-      : (currentUser as ProviderProfile).walletBalance;
+    return currentUser.role === "customer" ? currentUser.balance : currentUser.walletBalance;
   }, [currentUser]);
 
-  const transactions = useMemo(() => {
-    return currentUser ? currentUser.transactions : [];
-  }, [currentUser]);
+  const transactions = useMemo(() => (currentUser ? currentUser.transactions : []), [currentUser]);
 
   const providerOnline = useMemo(() => {
-    if (currentUser && currentUser.role === "provider") {
-      return (currentUser as ProviderProfile).available;
-    }
+    if (currentUser && currentUser.role === "provider") return currentUser.available;
     return true;
   }, [currentUser]);
 
   const setProviderOnline = useCallback(
     (v: boolean) => {
-      if (currentUser && currentUser.role === "provider") {
-        updateProfile({ available: v });
-      }
+      if (currentUser && currentUser.role === "provider") updateProfile({ available: v });
     },
     [currentUser, updateProfile]
   );
 
   const liveEarnings = useMemo(() => {
-    if (currentUser && currentUser.role === "provider") {
-      return (currentUser as ProviderProfile).totalEarnings;
-    }
+    if (currentUser && currentUser.role === "provider") return currentUser.totalEarnings;
     return 0;
   }, [currentUser]);
 
-  // Compat for code setting role directly
-  const role = currentUser ? currentUser.role : "customer";
+  const role: Role = currentUser ? currentUser.role : "customer";
   const setRole = useCallback(() => {}, []);
 
   const value = useMemo<Store>(
     () => ({
+      loading,
       currentUser,
       providers,
       signUp,
@@ -688,6 +725,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       role,
     }),
     [
+      loading,
       currentUser,
       providers,
       signUp,
@@ -708,6 +746,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       endSession,
       lastSummary,
       liveEarnings,
+      setRole,
       role,
     ]
   );
