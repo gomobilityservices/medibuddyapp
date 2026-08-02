@@ -189,7 +189,7 @@ export const incomingRequests = [
 ];
 
 export function money(n: number) {
-  return `$${n.toFixed(2)}`;
+  return `Rs ${n.toFixed(2)}`;
 }
 
 export function clock(totalSeconds: number) {

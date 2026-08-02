@@ -26,7 +26,7 @@ function ProviderDashboard() {
   const { providerOnline, setProviderOnline, liveEarnings } = useStore();
 
   return (
-    <MobileShell title="Your status" subtitle="Ava R. · $1.20/min">
+    <MobileShell title="Your status" subtitle="Ava R. · Rs 1.20/min">
       <div
         className={cn(
           "rounded-3xl border p-5",

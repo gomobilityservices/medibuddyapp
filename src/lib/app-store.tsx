@@ -94,7 +94,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           id: `s${Date.now()}`,
           kind: "debit",
           label: `${current.mode === "call" ? "Call" : "Chat"} with ${p?.name ?? "provider"}`,
-          sub: `${minutes} min at $${current.rate.toFixed(2)}/min`,
+          sub: `${minutes} min at Rs ${current.rate.toFixed(2)}/min`,
           amount,
         },
         ...prev,

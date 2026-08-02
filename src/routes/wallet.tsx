@@ -35,7 +35,7 @@ function WalletPage() {
           {money(balance)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          About {Math.floor(balance / 1.2)} min at an average $1.20/min
+          About {Math.floor(balance / 1.2)} min at an average Rs 1.20/min
         </p>
       </div>
 
