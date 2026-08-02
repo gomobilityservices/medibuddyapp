@@ -591,56 +591,47 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const endSession = useCallback(() => {
-    if (endingRef.current) return;
+    const current = sessionRef.current;
+    if (!current || endingRef.current) return;
     endingRef.current = true;
+    sessionRef.current = null;
+    setSession(null);
 
-    setSession((current) => {
-      if (!current) {
-        endingRef.current = false;
-        return null;
-      }
+    const minutes = Math.max(1, Math.ceil(current.elapsed / 60));
+    const amount = Math.min(minutes * current.rate, current.startBalance);
+    const balanceAfter = Math.max(0, current.startBalance - amount);
 
-      const minutes = Math.max(1, Math.ceil(current.elapsed / 60));
-      const amount = Math.min(minutes * current.rate, current.startBalance);
-      const balanceAfter = Math.max(0, current.startBalance - amount);
-
-      // optimistic summary so the summary screen renders instantly
-      setLastSummary({
-        providerId: current.providerId,
-        mode: current.mode,
-        seconds: current.elapsed,
-        minutes,
-        amount,
-        balanceAfter,
-      });
-
-      const sessionId = current.sessionId;
-      const seconds = current.elapsed;
-
-      void (async () => {
-        if (sessionId) {
-          const { data } = await supabase.rpc("end_session", {
-            p_session_id: sessionId,
-            p_seconds: seconds,
-          });
-          const result: any = data;
-          if (result) {
-            setLastSummary({
-              providerId: result.provider_id,
-              mode: result.mode,
-              seconds: result.seconds,
-              minutes: result.minutes,
-              amount: Number(result.amount),
-              balanceAfter: Number(result.balance_after),
-            });
-          }
-        }
-        await refresh();
-        endingRef.current = false;
-      })();
-
-      return null;
+    // optimistic summary so the summary screen renders instantly
+    setLastSummary({
+      providerId: current.providerId,
+      mode: current.mode,
+      seconds: current.elapsed,
+      minutes,
+      amount,
+      balanceAfter,
     });
+
+    void (async () => {
+      if (current.sessionId) {
+        const { data } = await supabase.rpc("end_session", {
+          p_session_id: current.sessionId,
+          p_seconds: current.elapsed,
+        });
+        const result: any = data;
+        if (result) {
+          setLastSummary({
+            providerId: result.provider_id,
+            mode: result.mode,
+            seconds: result.seconds,
+            minutes: result.minutes,
+            amount: Number(result.amount),
+            balanceAfter: Number(result.balance_after),
+          });
+        }
+      }
+      await refresh();
+      endingRef.current = false;
+    })();
   }, [refresh]);
 
   // Real-time session clock + automatic minute billing guard
