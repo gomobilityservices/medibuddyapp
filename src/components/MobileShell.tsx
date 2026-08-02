@@ -1,5 +1,5 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { ChevronLeft, Compass, LineChart, Radio, User, Wallet } from "lucide-react";
+import { ChevronLeft, Compass, LineChart, Radio, User, Wallet, History } from "lucide-react";
 import type { ReactNode } from "react";
 import { useStore } from "@/lib/app-store";
 import { cn } from "@/lib/utils";
@@ -67,6 +67,7 @@ function BottomNav() {
     !providerNav
       ? [
           { to: "/", label: "Discover", icon: Compass },
+          { to: "/activity", label: "Activity", icon: History },
           { to: "/wallet", label: "Wallet", icon: Wallet },
           { to: "/profile", label: "Profile", icon: User },
         ]

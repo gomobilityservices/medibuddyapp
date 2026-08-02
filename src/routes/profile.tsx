@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Bell,
   ChevronRight,
@@ -39,6 +39,7 @@ export const Route = createFileRoute("/profile")({
 
 function ProfilePage() {
   const { balance, currentUser, logout, updateProfile, providers, setRole } = useStore();
+  const navigate = useNavigate();
   const [openEdit, setOpenEdit] = useState(false);
 
   // Edit states
@@ -137,88 +138,6 @@ function ProfilePage() {
         </Dialog>
       </div>
 
-      {/* Saved / Bookmarked Providers */}
-      <div className="mt-5">
-        <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase mb-2 flex items-center gap-1">
-          <Heart className="h-3.5 w-3.5 text-rose-500 fill-rose-500" /> Saved Providers ({savedList.length})
-        </h3>
-        <div className="space-y-2">
-          {savedList.map((p) => (
-            <a
-              key={p.id}
-              href={`/talk/${p.id}`}
-              className="flex items-center gap-3 p-3 bg-card border border-border/60 rounded-2xl hover:bg-muted/30 transition-all"
-            >
-              <img src={p.photo} alt={p.name} className="h-10 w-10 rounded-xl object-cover" />
-              <div className="min-w-0 flex-1">
-                <h4 className="text-sm font-semibold text-foreground truncate">{p.name}</h4>
-                <p className="text-[10px] text-muted-foreground truncate">{p.area} · {money(p.rateChat)}/min</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-            </a>
-          ))}
-          {savedList.length === 0 && (
-            <div className="text-center py-5 text-xs text-muted-foreground bg-card/35 border border-dashed border-border rounded-xl">
-              No saved providers yet. Tap heart on listener profile to save.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Recent Chats */}
-      {customerProfile && (
-        <div className="mt-5">
-          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase mb-2 flex items-center gap-1">
-            <MessageCircle className="h-3.5 w-3.5 text-primary" /> Recent Chats ({customerProfile.recentChats?.length || 0})
-          </h3>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {customerProfile.recentChats?.map((session, index) => (
-              <div key={index} className="p-3 bg-card border border-border/60 rounded-2xl flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-semibold text-foreground">{session.providerName}</span>
-                  <p className="text-[10px] text-muted-foreground">{session.date}</p>
-                </div>
-                <span className="text-muted-foreground font-medium">
-                  {Math.ceil(session.duration / 60)} min
-                </span>
-              </div>
-            ))}
-            {(customerProfile.recentChats || []).length === 0 && (
-              <div className="text-center py-4 text-xs text-muted-foreground bg-card/35 border border-dashed border-border rounded-xl">
-                No recent chats yet.
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Calls */}
-      {customerProfile && (
-        <div className="mt-5">
-          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase mb-2 flex items-center gap-1">
-            <Phone className="h-3.5 w-3.5 text-indigo-500" /> Recent Calls ({customerProfile.recentCalls?.length || 0})
-          </h3>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {customerProfile.recentCalls?.map((session, index) => (
-              <div key={index} className="p-3 bg-card border border-border/60 rounded-2xl flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-semibold text-foreground">{session.providerName}</span>
-                  <p className="text-[10px] text-muted-foreground">{session.date}</p>
-                </div>
-                <span className="text-muted-foreground font-medium">
-                  {Math.ceil(session.duration / 60)} min
-                </span>
-              </div>
-            ))}
-            {(customerProfile.recentCalls || []).length === 0 && (
-              <div className="text-center py-4 text-xs text-muted-foreground bg-card/35 border border-dashed border-border rounded-xl">
-                No recent calls yet.
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       <p className="mt-5 mb-2 text-sm font-semibold text-foreground">Settings</p>
       <ul className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card">
         <Item icon={Globe} label="Language & region" value="English (IN)" />
@@ -228,7 +147,10 @@ function ProfilePage() {
       </ul>
 
       <button
-        onClick={logout}
+        onClick={() => {
+          logout();
+          navigate({ to: "/", replace: true });
+        }}
         type="button"
         className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 py-3.5 text-sm font-semibold text-destructive hover:bg-destructive/10 transition-all cursor-pointer"
       >

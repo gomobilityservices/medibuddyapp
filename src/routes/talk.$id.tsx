@@ -58,6 +58,13 @@ function TalkDetail() {
   function confirm() {
     if (!pending) return;
     const mode = pending;
+    const rate = mode === "call" ? provider.rateCall : provider.rateChat;
+    if (balance < rate) {
+      toast.error("Insufficient balance. Please add money to your wallet first.");
+      setPending(null);
+      navigate({ to: "/wallet" });
+      return;
+    }
     startSession(provider!.id, mode);
     setPending(null);
     navigate({

@@ -196,12 +196,41 @@ function mapReview(row: any): Review {
   };
 }
 
+function persistDemoCustomerBalance(bal: number) {
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem("minute_demo_customer_profile");
+    const profile = stored ? JSON.parse(stored) : {};
+    profile.balance = bal;
+    localStorage.setItem("minute_demo_customer_profile", JSON.stringify(profile));
+  }
+}
+
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [session, setSession] = useState<ActiveSession | null>(null);
+  const [session, setSessionState] = useState<ActiveSession | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("minute_active_session");
+      return saved ? JSON.parse(saved) : null;
+    }
+    return null;
+  });
+
+  const setSession = useCallback((val: ActiveSession | null | ((prev: ActiveSession | null) => ActiveSession | null)) => {
+    setSessionState((prev) => {
+      const next = typeof val === "function" ? val(prev) : val;
+      if (typeof window !== "undefined") {
+        if (next) {
+          localStorage.setItem("minute_active_session", JSON.stringify(next));
+        } else {
+          localStorage.removeItem("minute_active_session");
+        }
+      }
+      return next;
+    });
+  }, []);
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
   const endingRef = useRef(false);
   const sessionRef = useRef<ActiveSession | null>(null);
@@ -241,38 +270,256 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadUser = useCallback(async (uid: string, email: string) => {
-    const { data: profile } = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
-    if (!profile) {
-      setCurrentUser(null);
-      return;
+    let profile: any = null;
+
+    if (email === "customer@demo.com") {
+      if (typeof window !== "undefined") {
+        const storedProfile = localStorage.getItem("minute_demo_customer_profile");
+        if (storedProfile) {
+          const parsed = JSON.parse(storedProfile);
+          profile = {
+            id: uid,
+            email,
+            role: "customer",
+            name: parsed.name ?? "Riya Sharma (Demo Customer)",
+            gender: parsed.gender ?? "Woman",
+            balance: parsed.balance ?? 250.0,
+            photo: parsed.photo ?? "https://api.dicebear.com/7.x/adventurer/svg?seed=riya",
+          };
+        } else {
+          profile = {
+            id: uid,
+            email,
+            role: "customer",
+            name: "Riya Sharma (Demo Customer)",
+            gender: "Woman",
+            balance: 250.0,
+            photo: "https://api.dicebear.com/7.x/adventurer/svg?seed=riya",
+          };
+          localStorage.setItem("minute_demo_customer_profile", JSON.stringify(profile));
+        }
+      } else {
+        profile = {
+          id: uid,
+          email,
+          role: "customer",
+          name: "Riya Sharma (Demo Customer)",
+          gender: "Woman",
+          balance: 250.0,
+          photo: "https://api.dicebear.com/7.x/adventurer/svg?seed=riya",
+        };
+      }
+    } else if (email === "provider@demo.com") {
+      if (typeof window !== "undefined") {
+        const storedProfile = localStorage.getItem("minute_demo_provider_profile");
+        if (storedProfile) {
+          profile = JSON.parse(storedProfile);
+        } else {
+          profile = {
+            id: uid,
+            email,
+            role: "provider",
+            name: "Ava Roy (Demo Provider)",
+            gender: "female",
+            balance: 0.0,
+            photo: "https://api.dicebear.com/7.x/bottts/svg?seed=ava",
+          };
+          localStorage.setItem("minute_demo_provider_profile", JSON.stringify(profile));
+        }
+      } else {
+        profile = {
+          id: uid,
+          email,
+          role: "provider",
+          name: "Ava Roy (Demo Provider)",
+          gender: "female",
+          balance: 0.0,
+          photo: "https://api.dicebear.com/7.x/bottts/svg?seed=ava",
+        };
+      }
+    } else {
+      try {
+        const res = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
+        profile = res.data;
+      } catch (e) {
+        console.warn("Failed to load user profile:", e);
+      }
     }
 
-    const { data: txnRows } = await supabase
-      .from("transactions")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(200);
-    const transactions = (txnRows ?? []).map(mapTxn);
+    if (!profile) {
+      console.log("Profile not found in database, generating profile row dynamically for:", uid);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const metadata = sessionData.session?.user?.user_metadata ?? {};
+      const role = metadata.role ?? "customer";
+      
+      const newProfile = {
+        id: uid,
+        email: email,
+        role: role,
+        name: metadata.name || "New User",
+        gender: metadata.gender || "Woman",
+        balance: 0.0,
+        photo: metadata.photo || `https://api.dicebear.com/7.x/adventurer/svg?seed=${uid}`,
+      };
+
+      try {
+        await supabase.from("profiles").insert([newProfile]);
+        
+        if (role === "provider") {
+          const newProviderDetail = {
+            user_id: uid,
+            name: metadata.name || "Provider",
+            username: metadata.username || `user_${uid}`,
+            gender: metadata.provider_gender || "female",
+            languages: metadata.languages || ["English"],
+            area: metadata.area || "",
+            description: metadata.description || "",
+            categories: metadata.categories || ["General Chat"],
+            experience: metadata.experience || "",
+            rate_call: Number(metadata.rate_call) || 1.5,
+            rate_chat: Number(metadata.rate_chat) || 1.0,
+            preferred_customer_gender: metadata.preferred_customer_gender || "everyone",
+            photo: metadata.photo || `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
+            available: true,
+          };
+          await supabase.from("providers").insert([newProviderDetail]);
+        }
+      } catch (e) {
+        console.error("Failed to insert profile row:", e);
+      }
+
+      try {
+        const res = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
+        profile = res.data;
+      } catch (e) {}
+
+      if (!profile) {
+        profile = {
+          id: uid,
+          email,
+          role,
+          name: newProfile.name,
+          gender: newProfile.gender,
+          balance: 0.0,
+          photo: newProfile.photo,
+        };
+      }
+    }
+
+    if (profile && profile.role === "customer" && profile.email === "customer@demo.com" && num(profile.balance) === 0.0) {
+      try {
+        await supabase.from("profiles").update({ balance: 250.0 }).eq("id", uid);
+        profile.balance = 250.0;
+      } catch (e) {
+        console.warn("Failed to initialize customer@demo.com balance:", e);
+      }
+    }
+
+    // Load transactions
+    let txnRows: any[] = [];
+    try {
+      const { data } = await supabase
+        .from("transactions")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      txnRows = data ?? [];
+    } catch (e) {}
+
+    // Load local transactions
+    const localTxns = typeof window !== "undefined"
+      ? JSON.parse(localStorage.getItem("minute_local_transactions") || "[]")
+      : [];
+    const userLocalTxns = localTxns.filter((t: any) => t.user_id === uid || t.userId === uid);
+
+    const transactions = [
+      ...userLocalTxns.map((t: any) => ({
+        id: t.id,
+        kind: t.kind,
+        type: t.type,
+        label: t.label,
+        sub: t.sub,
+        amount: Number(t.amount),
+        timestamp: new Date(t.created_at).toLocaleString(),
+      })),
+      ...txnRows.map(mapTxn),
+    ];
 
     if (profile.role === "customer") {
-      const [{ data: savedRows }, { data: sessionRows }] = await Promise.all([
-        supabase.from("saved_providers").select("provider_id"),
-        supabase
-          .from("sessions")
-          .select("provider_id, mode, seconds, ended_at")
-          .eq("status", "ended")
-          .order("started_at", { ascending: false })
-          .limit(50),
-      ]);
+      let savedRows: any[] = [];
+      let sessionRows: any[] = [];
+      try {
+        const [savedRes, sessionRes] = await Promise.all([
+          supabase.from("saved_providers").select("provider_id"),
+          supabase
+            .from("sessions")
+            .select("provider_id, mode, seconds, ended_at, amount, status")
+            .order("started_at", { ascending: false })
+            .limit(50),
+        ]);
+        savedRows = savedRes.data ?? [];
+        sessionRows = sessionRes.data ?? [];
+      } catch (e) {}
 
-      const nameFor = (id: string) => providers.find((p) => p.id === id)?.name ?? "Provider";
-      const history = (sessionRows ?? []).map((s: any) => ({
-        providerId: s.provider_id,
-        providerName: nameFor(s.provider_id),
-        duration: s.seconds ?? 0,
-        date: s.ended_at ? new Date(s.ended_at).toLocaleString() : "",
-        mode: s.mode as Mode,
-      }));
+      // Load local sessions
+      const localSess = typeof window !== "undefined"
+        ? JSON.parse(localStorage.getItem("minute_local_sessions") || "[]")
+        : [];
+      const userLocalSess = localSess
+        .filter((s: any) => s.customer_id === uid)
+        .map((s: any) => ({
+          provider_id: s.provider_id,
+          mode: s.mode,
+          seconds: s.seconds,
+          ended_at: s.ended_at,
+          amount: s.amount,
+          status: s.status,
+        }));
+
+      const combinedSessions = [...userLocalSess, ...sessionRows];
+      const history = combinedSessions.map((s: any) => {
+        const prov = providers.find((p) => 
+          p.id === s.provider_id || 
+          p.username === s.provider_id ||
+          p.id?.toLowerCase().startsWith(s.provider_id?.toLowerCase()) ||
+          s.provider_id?.toLowerCase().startsWith(p.id?.toLowerCase()) ||
+          p.username?.toLowerCase().startsWith(s.provider_id?.toLowerCase()) ||
+          s.provider_id?.toLowerCase().startsWith(p.username?.toLowerCase())
+        );
+
+        const getFallbackName = (id: string) => {
+          const lower = String(id).toLowerCase();
+          if (lower.includes("ava") || lower.includes("2222")) return "Ava R.";
+          if (lower.includes("malik")) return "Malik T.";
+          if (lower.includes("mei")) return "Mei L.";
+          if (lower.includes("diego")) return "Diego M.";
+          if (lower.includes("nour")) return "Nour A.";
+          if (lower.includes("jonas")) return "Jonas W.";
+          return "Listener";
+        };
+
+        const rate = s.mode === "call" ? (prov?.rateCall ?? 1.5) : (prov?.rateChat ?? 1.0);
+        const minutes = Math.max(1, Math.ceil((s.seconds ?? 0) / 60));
+        const charge = s.amount ?? (minutes * rate);
+        return {
+          providerId: s.provider_id,
+          providerName: prov?.name ?? getFallbackName(s.provider_id),
+          duration: s.seconds ?? 0,
+          date: s.ended_at ? new Date(s.ended_at).toLocaleString() : "",
+          mode: s.mode as Mode,
+          charge: Number(charge),
+          status: s.status ?? "ended",
+        };
+      });
+
+      // Load saved list
+      const savedIdsLocal = typeof window !== "undefined"
+        ? JSON.parse(localStorage.getItem("minute_saved_providers") || "[]")
+        : [];
+      const combinedSaved = Array.from(new Set([
+        ...savedIdsLocal,
+        ...savedRows.map((r: any) => r.provider_id)
+      ]));
 
       setCurrentUser({
         id: profile.id,
@@ -283,25 +530,63 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         photo: resolvePhoto(profile.photo),
         balance: num(profile.balance),
         transactions,
-        savedProviders: (savedRows ?? []).map((r: any) => r.provider_id),
+        savedProviders: combinedSaved,
         recentChats: history.filter((h: any) => h.mode === "chat").map(({ mode, ...rest }: any) => rest),
         recentCalls: history.filter((h: any) => h.mode === "call").map(({ mode, ...rest }: any) => rest),
       });
       return;
     }
 
-    const [{ data: listing }, { data: withdrawalRows }] = await Promise.all([
-      supabase.from("providers").select("*").eq("user_id", uid).maybeSingle(),
-      supabase.from("withdrawals").select("*").order("created_at", { ascending: false }),
-    ]);
+    let listing: any = null;
+    let withdrawalRows: any[] = [];
+    let reviewRows: any[] = [];
 
-    const { data: reviewRows } = listing
-      ? await supabase
-          .from("reviews")
-          .select("*")
-          .eq("provider_id", listing.id)
-          .order("created_at", { ascending: false })
-      : { data: [] as any[] };
+    if (email === "provider@demo.com") {
+      listing = {
+        id: "demo_provider_listing_id",
+        user_id: uid,
+        name: "Ava Roy (Demo Provider)",
+        username: "ava_r",
+        photo: "https://api.dicebear.com/7.x/bottts/svg?seed=ava",
+        gender: "female",
+        languages: ["English", "Hindi"],
+        area: "Bandra West",
+        description: "Friendly chat, life coaching, or general listening session.",
+        categories: ["General Chat"],
+        experience: "4 years",
+        rate_call: 1.5,
+        rate_chat: 1.0,
+        preferred_customer_gender: "everyone",
+        wallet_balance: 120.0,
+        total_earnings: 840.0,
+        pending_earnings: 0.0,
+        available: true,
+        sessions: 42,
+        response_sec: 15,
+      };
+      withdrawalRows = [];
+      reviewRows = [];
+    } else {
+      try {
+        const [listingRes, withdrawalsRes] = await Promise.all([
+          supabase.from("providers").select("*").eq("user_id", uid).maybeSingle(),
+          supabase.from("withdrawals").select("*").order("created_at", { ascending: false }),
+        ]);
+        listing = listingRes.data;
+        withdrawalRows = withdrawalsRes.data ?? [];
+      } catch (e) {}
+
+      if (listing) {
+        try {
+          const res = await supabase
+            .from("reviews")
+            .select("*")
+            .eq("provider_id", listing.id)
+            .order("created_at", { ascending: false });
+          reviewRows = res.data ?? [];
+        } catch (e) {}
+      }
+    }
 
     setCurrentUser({
       id: profile.id,
@@ -309,27 +594,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       role: "provider",
       email: profile.email || email,
       name: profile.name,
-      username: listing?.username ?? "",
-      photo: resolvePhoto(listing?.photo || profile.photo),
-      gender: (listing?.gender ?? "female") as Gender,
-      languages: listing?.languages ?? [],
+      username: listing?.username ?? `user_${profile.id}`,
+      photo: resolvePhoto(profile.photo),
+      gender: listing?.gender ?? "female",
+      languages: listing?.languages ?? ["English"],
       area: listing?.area ?? "",
       description: listing?.description ?? "",
-      categories: listing?.categories ?? [],
+      categories: listing?.categories ?? ["General Chat"],
       experience: listing?.experience ?? "",
-      rating: num(listing?.rating),
-      reviews: listing?.reviews ?? 0,
-      rateCall: num(listing?.rate_call),
-      rateChat: num(listing?.rate_chat),
-      rate: num(listing?.rate_chat),
-      available: !!listing?.available,
-      preferredCustomerGender: (listing?.preferred_customer_gender ?? "everyone") as
-        | "male"
-        | "female"
-        | "everyone",
-      walletBalance: num(profile.wallet_balance),
-      totalEarnings: num(profile.total_earnings),
-      pendingEarnings: num(profile.pending_earnings),
+      rateCall: listing?.rate_call ?? 1.5,
+      rateChat: listing?.rate_chat ?? 1.0,
+      preferredCustomerGender: listing?.preferred_customer_gender ?? "everyone",
+      walletBalance: num(listing?.wallet_balance ?? 0),
+      totalEarnings: num(listing?.total_earnings ?? 0),
+      pendingEarnings: num(listing?.pending_earnings ?? 0),
       transactions,
       withdrawals: (withdrawalRows ?? []).map((w: any) => ({
         id: w.id,
@@ -340,6 +618,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       sessions: listing?.sessions ?? 0,
       responseSec: listing?.response_sec ?? 15,
       reviewsList: (reviewRows ?? []).map(mapReview),
+      available: listing?.available ?? true,
     });
   }, [providers]);
 
@@ -376,6 +655,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         await loadProviders();
+
+        // Restore offline demo account session first
+        const offlineUid = typeof window !== "undefined" ? localStorage.getItem("minute_offline_userid") : null;
+        const offlineEmail = typeof window !== "undefined" ? localStorage.getItem("minute_offline_email") : null;
+
+        if (offlineUid && offlineEmail) {
+          if (active) {
+            setUserId(offlineUid);
+            await loadUser(offlineUid, offlineEmail);
+          }
+          return;
+        }
+
         const { data } = await supabase.auth.getSession();
         if (!active) return;
         const user = data.session?.user;
@@ -448,172 +740,66 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       try {
         const { data, error } = await supabase.auth.signUp({ email, password, options });
-        if (!error && data.user) {
+        if (error) {
+          console.error("SignUp error:", error);
+          toast.error(error.message);
+          return false;
+        }
+        if (data.user) {
           if (!data.session) {
-            toast.info("Supabase account created! Verification email sent.");
+            toast.info("Supabase account created! Please verify email check link to login.");
           } else if (data.session?.user) {
             setUserId(data.session.user.id);
             await loadProviders();
           }
           return true;
         }
-      } catch (e) {
-        console.warn("Supabase signup failed, falling back to local signup:", e);
+      } catch (e: any) {
+        console.error("Supabase signup exception:", e);
+        toast.error(e.message || "Signup failed.");
       }
-
-      // Local storage auth database fallback
-      const LOCAL_USERS_KEY = "minute_local_users_db";
-      const localUsers = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || "{}");
-      if (localUsers[email]) {
-        toast.error("This email is already registered locally.");
-        return false;
-      }
-
-      const localId = `local_${Date.now()}`;
-      let profile: any = {};
-      if (role === "customer") {
-        profile = {
-          id: localId,
-          role: "customer",
-          email,
-          name: profileData.name || "Customer",
-          gender: profileData.gender || "Everyone",
-          photo: profileData.photo || `https://api.dicebear.com/7.x/adventurer/svg?seed=${localId}`,
-          balance: 0.0,
-          transactions: [],
-          savedProviders: [],
-          recentChats: [],
-          recentCalls: [],
-        };
-      } else {
-        profile = {
-          id: localId,
-          listingId: localId,
-          role: "provider",
-          email,
-          name: profileData.name || "Provider",
-          username: profileData.username || `user_${localId}`,
-          photo: profileData.photo || `https://api.dicebear.com/7.x/bottts/svg?seed=${localId}`,
-          gender: profileData.gender || "female",
-          languages: profileData.languages || ["English"],
-          area: profileData.area || "",
-          description: profileData.description || "",
-          categories: profileData.categories || ["General Chat"],
-          experience: profileData.experience || "",
-          rateCall: profileData.rateCall || 1.5,
-          rateChat: profileData.rateChat || 1.0,
-          preferredCustomerGender: profileData.preferredCustomerGender || "everyone",
-          walletBalance: 0.0,
-          totalEarnings: 0.0,
-          pendingEarnings: 0.0,
-          transactions: [],
-          withdrawals: [],
-          rating: 5.0,
-          reviews: 0,
-          reviewsList: [],
-          available: true,
-          sessions: 0,
-          responseSec: 15,
-        };
-
-        // Add new provider to active listing list
-        setProviders((prev) => [...prev, profile]);
-      }
-
-      localUsers[email] = { password, role, profile };
-      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
-      
-      // Log in local user
-      setUserId(localId);
-      setCurrentUser(profile);
-      toast.success("Local account created successfully!");
-      return true;
+      return false;
     },
     [loadProviders]
   );
 
   const login = useCallback(
     async (email: string, password: string): Promise<boolean> => {
-      // Demo accounts for local testing bypass
+      // Mock offline login for demo accounts
       if (email === "customer@demo.com" && password === "password123") {
         await loadProviders();
-        setUserId("demo_customer_id");
-        setCurrentUser({
-          id: "demo_customer_id",
-          role: "customer",
-          email: "customer@demo.com",
-          name: "Riya Sharma (Demo Customer)",
-          gender: "Woman",
-          photo: "https://api.dicebear.com/7.x/adventurer/svg?seed=riya",
-          balance: 250.0,
-          transactions: [],
-          savedProviders: [],
-          recentChats: [],
-          recentCalls: [],
-        });
+        if (typeof window !== "undefined") {
+          localStorage.setItem("minute_offline_userid", "d3b07384-d113-4ec8-a5f1-dd9e248b1111");
+          localStorage.setItem("minute_offline_email", "customer@demo.com");
+        }
+        setUserId("d3b07384-d113-4ec8-a5f1-dd9e248b1111");
         return true;
       }
       if (email === "provider@demo.com" && password === "password123") {
         await loadProviders();
-        setUserId("demo_provider_id");
-        setCurrentUser({
-          id: "demo_provider_id",
-          listingId: "1",
-          role: "provider",
-          email: "provider@demo.com",
-          name: "Ava Roy (Demo Provider)",
-          username: "ava_r",
-          photo: "https://api.dicebear.com/7.x/bottts/svg?seed=ava",
-          gender: "female",
-          languages: ["English", "Hindi"],
-          area: "Bandra West",
-          description: "Friendly chat, life coaching, or general listening session.",
-          categories: ["General Chat"],
-          experience: "4 years",
-          rateCall: 1.5,
-          rateChat: 1.0,
-          rate: 1.0,
-          preferredCustomerGender: "everyone",
-          walletBalance: 120.0,
-          totalEarnings: 840.0,
-          pendingEarnings: 0.0,
-          transactions: [],
-          withdrawals: [],
-          rating: 4.8,
-          reviews: 12,
-          reviewsList: [],
-          available: true,
-          sessions: 42,
-          responseSec: 15,
-        });
-        return true;
-      }
-
-      // Check local storage auth database
-      const LOCAL_USERS_KEY = "minute_local_users_db";
-      const localUsers = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || "{}");
-      if (localUsers[email] && localUsers[email].password === password) {
-        await loadProviders();
-        const localUser = localUsers[email];
-        setUserId(localUser.profile.id);
-        setCurrentUser(localUser.profile);
-        toast.success("Welcome back!");
+        if (typeof window !== "undefined") {
+          localStorage.setItem("minute_offline_userid", "d3b07384-d113-4ec8-a5f1-dd9e248b2222");
+          localStorage.setItem("minute_offline_email", "provider@demo.com");
+        }
+        setUserId("d3b07384-d113-4ec8-a5f1-dd9e248b2222");
         return true;
       }
 
       try {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (!error && data.user) {
+        if (error) {
+          console.error("Login error:", error);
+          toast.error(error.message);
+          return false;
+        }
+        if (data.user) {
           await loadProviders();
           setUserId(data.user.id);
           return true;
         }
-        if (error) {
-          console.error("Login error:", error);
-          toast.error(error.message);
-        }
-      } catch (e) {
-        console.warn("Supabase sign-in failed, checking offline status:", e);
+      } catch (e: any) {
+        console.error("Supabase login exception:", e);
+        toast.error(e.message || "Login failed.");
       }
       return false;
     },
@@ -623,10 +809,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setSession(null);
     setLastSummary(null);
-    void supabase.auth.signOut();
-    setCurrentUser(null);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("minute_offline_userid");
+      localStorage.removeItem("minute_offline_email");
+    }
     setUserId(null);
-  }, []);
+    setCurrentUser(null);
+    void supabase.auth.signOut();
+  }, [setSession]);
 
   // ---------------------------------------------------------------- profile
   const updateProfile = useCallback(
@@ -684,18 +874,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         : [...currentUser.savedProviders, providerId];
       setCurrentUser({ ...currentUser, savedProviders: saved });
 
+      // Save to localStorage so it persists
+      localStorage.setItem("minute_saved_providers", JSON.stringify(saved));
+
       void (async () => {
-        if (isSaved) {
-          await supabase
-            .from("saved_providers")
-            .delete()
-            .eq("user_id", currentUser.id)
-            .eq("provider_id", providerId);
-        } else {
-          await supabase
-            .from("saved_providers")
-            .insert({ user_id: currentUser.id, provider_id: providerId });
-        }
+        try {
+          if (isSaved) {
+            await supabase
+              .from("saved_providers")
+              .delete()
+              .eq("user_id", currentUser.id)
+              .eq("provider_id", providerId);
+          } else {
+            await supabase
+              .from("saved_providers")
+              .insert({ user_id: currentUser.id, provider_id: providerId });
+          }
+        } catch (e) {}
       })();
     },
     [currentUser]
@@ -738,9 +933,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const topUp = useCallback(
     (amount: number) => {
       if (!currentUser || currentUser.role !== "customer") return;
-      setCurrentUser({ ...currentUser, balance: currentUser.balance + amount });
+
+      // Update balance for demo customer
+      if (currentUser.email === "customer@demo.com") {
+        const nextBal = currentUser.balance + amount;
+        persistDemoCustomerBalance(nextBal);
+        setCurrentUser((prev: any) => prev ? { ...prev, balance: nextBal } : prev);
+      }
+
       void (async () => {
-        await supabase.rpc("top_up_wallet", { p_amount: amount });
+        try {
+          const { data, error } = await supabase.rpc("top_up_wallet", { p_amount: amount });
+          if (error) {
+            // Local fallback on error
+            const localTxns = typeof window !== "undefined"
+              ? JSON.parse(localStorage.getItem("minute_local_transactions") || "[]")
+              : [];
+            localTxns.unshift({
+              id: `local_tx_${Date.now()}`,
+              user_id: currentUser.id,
+              kind: "credit",
+              type: "topup",
+              label: "Wallet Top Up",
+              sub: "Added to prepaid balance",
+              amount: amount,
+              created_at: new Date().toISOString(),
+            });
+            if (typeof window !== "undefined") {
+              localStorage.setItem("minute_local_transactions", JSON.stringify(localTxns));
+            }
+          }
+        } catch (e) {}
         await refresh();
       })();
     },
@@ -754,9 +977,27 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!p || !currentUser || currentUser.role !== "customer") return;
 
       const rate = mode === "call" ? p.rateCall : p.rateChat;
-      if (currentUser.balance < rate) return;
+      if (currentUser.balance < rate) {
+        toast.error("Insufficient balance. Please add money to your wallet.");
+        return;
+      }
 
       setLastSummary(null);
+      
+      const nextBal = Math.max(0, currentUser.balance - rate);
+
+      // Deduct first minute rate immediately client-side
+      setCurrentUser((user: any) => {
+        if (!user || user.role !== "customer") return user;
+        if (user.email === "customer@demo.com") {
+          persistDemoCustomerBalance(nextBal);
+        }
+        return {
+          ...user,
+          balance: nextBal,
+        };
+      });
+
       setSession({
         sessionId: null,
         providerId,
@@ -764,20 +1005,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         rate,
         startBalance: currentUser.balance,
         elapsed: 0,
-        accumulatedCharges: 0,
+        accumulatedCharges: rate,
       });
 
       void (async () => {
-        const { data, error } = await supabase.rpc("start_session", {
-          p_provider_id: providerId,
-          p_mode: mode,
-        });
-        if (error || !data) {
-          setSession(null);
-          return;
+        try {
+          const { data, error } = await supabase.rpc("start_session", {
+            p_provider_id: providerId,
+            p_mode: mode,
+          });
+          if (error || !data) {
+            console.warn("Supabase start_session RPC error or empty response. Falling back to local mock ID.", error);
+            const mockId = `mock_sess_${Date.now()}`;
+            setSession((curr) => (curr ? { ...curr, sessionId: mockId } : curr));
+          } else {
+            const row: any = Array.isArray(data) ? data[0] : data;
+            setSession((curr) => (curr ? { ...curr, sessionId: row.id } : curr));
+          }
+        } catch (err) {
+          console.error("Supabase start_session RPC exception, falling back to local mock ID.", err);
+          const mockId = `mock_sess_${Date.now()}`;
+          setSession((curr) => (curr ? { ...curr, sessionId: mockId } : curr));
         }
-        const row: any = Array.isArray(data) ? data[0] : data;
-        setSession((curr) => (curr ? { ...curr, sessionId: row.id } : curr));
+
         setProviders((prev) =>
           prev.map((pv) => (pv.id === providerId ? { ...pv, available: false } : pv))
         );
@@ -797,6 +1047,43 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const amount = Math.min(minutes * current.rate, current.startBalance);
     const balanceAfter = Math.max(0, current.startBalance - amount);
 
+    if (currentUser?.email === "customer@demo.com") {
+      persistDemoCustomerBalance(balanceAfter);
+    }
+
+    const providerName = providers.find((pv) => pv.id === current.providerId)?.name ?? "Listener";
+
+    const isMock = !current.sessionId || current.sessionId.startsWith("mock_");
+    if (isMock) {
+      // Add local transaction record
+      const localTxns = JSON.parse(localStorage.getItem("minute_local_transactions") || "[]");
+      localTxns.unshift({
+        id: `local_tx_${Date.now()}`,
+        user_id: currentUser?.id ?? "local_user",
+        kind: "debit",
+        type: current.mode === "call" ? "session_call" : "session_chat",
+        label: current.mode === "call" ? "Voice Call" : "Chat Session",
+        sub: `Paid to listener ${providerName}`,
+        amount: amount,
+        created_at: new Date().toISOString(),
+      });
+      localStorage.setItem("minute_local_transactions", JSON.stringify(localTxns));
+
+      // Add local session history record
+      const localSess = JSON.parse(localStorage.getItem("minute_local_sessions") || "[]");
+      localSess.unshift({
+        id: current.sessionId || `mock_${Date.now()}`,
+        customer_id: currentUser?.id ?? "local_user",
+        provider_id: current.providerId,
+        mode: current.mode,
+        seconds: current.elapsed,
+        ended_at: new Date().toISOString(),
+        status: "ended",
+        amount: amount,
+      });
+      localStorage.setItem("minute_local_sessions", JSON.stringify(localSess));
+    }
+
     // optimistic summary so the summary screen renders instantly
     setLastSummary({
       providerId: current.providerId,
@@ -808,27 +1095,31 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     });
 
     void (async () => {
-      if (current.sessionId) {
-        const { data } = await supabase.rpc("end_session", {
-          p_session_id: current.sessionId,
-          p_seconds: current.elapsed,
-        });
-        const result: any = data;
-        if (result) {
-          setLastSummary({
-            providerId: result.provider_id,
-            mode: result.mode,
-            seconds: result.seconds,
-            minutes: result.minutes,
-            amount: Number(result.amount),
-            balanceAfter: Number(result.balance_after),
+      if (current.sessionId && !current.sessionId.startsWith("mock_")) {
+        try {
+          const { data } = await supabase.rpc("end_session", {
+            p_session_id: current.sessionId,
+            p_seconds: current.elapsed,
           });
+          const result: any = data;
+          if (result) {
+            setLastSummary({
+              providerId: result.provider_id,
+              mode: result.mode,
+              seconds: result.seconds,
+              minutes: result.minutes,
+              amount: Number(result.amount),
+              balanceAfter: Number(result.balance_after),
+            });
+          }
+        } catch (err) {
+          console.warn("Supabase end_session RPC failed:", err);
         }
       }
       await refresh();
       endingRef.current = false;
     })();
-  }, [refresh]);
+  }, [refresh, providers, currentUser]);
 
   // Real-time session clock + automatic minute billing guard
   useEffect(() => {
@@ -837,16 +1128,35 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setSession((curr) => {
         if (!curr) return null;
         const nextElapsed = curr.elapsed + 1;
-        const currentMinutes = Math.ceil(curr.elapsed / 60);
-        const nextMinutes = Math.ceil(nextElapsed / 60);
+        const neededMinutes = Math.ceil(nextElapsed / 60);
+        const currentChargedMinutes = Math.ceil(curr.accumulatedCharges / curr.rate);
 
-        if (nextMinutes > currentMinutes) {
-          const billingCost = nextMinutes * curr.rate;
-          if (billingCost > curr.startBalance) {
+        if (neededMinutes > currentChargedMinutes) {
+          const nextBillingCost = neededMinutes * curr.rate;
+          if (nextBillingCost > curr.startBalance) {
             window.clearInterval(intervalId);
             setTimeout(() => endSession(), 10);
             return curr;
           }
+          
+          const nextBal = Math.max(0, curr.startBalance - nextBillingCost);
+
+          // Deduct next minute rate client-side in real-time
+          setCurrentUser((user: any) => {
+            if (!user || user.role !== "customer") return user;
+            if (user.email === "customer@demo.com") {
+              persistDemoCustomerBalance(nextBal);
+            }
+            return {
+              ...user,
+              balance: nextBal,
+            };
+          });
+          return {
+            ...curr,
+            elapsed: nextElapsed,
+            accumulatedCharges: nextBillingCost,
+          };
         }
 
         return { ...curr, elapsed: nextElapsed };

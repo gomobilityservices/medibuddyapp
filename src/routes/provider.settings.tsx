@@ -269,7 +269,10 @@ function ProviderSettings() {
       </Button>
 
       <button
-        onClick={logout}
+        onClick={() => {
+          logout();
+          navigate({ to: "/", replace: true });
+        }}
         type="button"
         className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 py-3.5 text-sm font-semibold text-destructive hover:bg-destructive/10 transition-all cursor-pointer"
       >
