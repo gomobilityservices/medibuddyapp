@@ -10,33 +10,154 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as WalletRouteImport } from './routes/wallet'
+import { Route as ProviderIndexRouteImport } from './routes/provider.index'
+import { Route as ProviderEarningsRouteImport } from './routes/provider.earnings'
+import { Route as ProviderSettingsRouteImport } from './routes/provider.settings'
+import { Route as SessionSummaryRouteImport } from './routes/session.summary'
+import { Route as TalkIdRouteImport } from './routes/talk.$id'
+import { Route as SessionCallIdRouteImport } from './routes/session.call.$id'
+import { Route as SessionChatIdRouteImport } from './routes/session.chat.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WalletRoute = WalletRouteImport.update({
+  id: '/wallet',
+  path: '/wallet',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProviderIndexRoute = ProviderIndexRouteImport.update({
+  id: '/provider/',
+  path: '/provider/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProviderEarningsRoute = ProviderEarningsRouteImport.update({
+  id: '/provider/earnings',
+  path: '/provider/earnings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProviderSettingsRoute = ProviderSettingsRouteImport.update({
+  id: '/provider/settings',
+  path: '/provider/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionSummaryRoute = SessionSummaryRouteImport.update({
+  id: '/session/summary',
+  path: '/session/summary',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TalkIdRoute = TalkIdRouteImport.update({
+  id: '/talk/$id',
+  path: '/talk/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionCallIdRoute = SessionCallIdRouteImport.update({
+  id: '/session/call/$id',
+  path: '/session/call/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionChatIdRoute = SessionChatIdRouteImport.update({
+  id: '/session/chat/$id',
+  path: '/session/chat/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/profile': typeof ProfileRoute
+  '/wallet': typeof WalletRoute
+  '/provider/earnings': typeof ProviderEarningsRoute
+  '/provider/settings': typeof ProviderSettingsRoute
+  '/session/summary': typeof SessionSummaryRoute
+  '/talk/$id': typeof TalkIdRoute
+  '/provider/': typeof ProviderIndexRoute
+  '/session/call/$id': typeof SessionCallIdRoute
+  '/session/chat/$id': typeof SessionChatIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/profile': typeof ProfileRoute
+  '/wallet': typeof WalletRoute
+  '/provider/earnings': typeof ProviderEarningsRoute
+  '/provider/settings': typeof ProviderSettingsRoute
+  '/session/summary': typeof SessionSummaryRoute
+  '/talk/$id': typeof TalkIdRoute
+  '/provider': typeof ProviderIndexRoute
+  '/session/call/$id': typeof SessionCallIdRoute
+  '/session/chat/$id': typeof SessionChatIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/profile': typeof ProfileRoute
+  '/wallet': typeof WalletRoute
+  '/provider/earnings': typeof ProviderEarningsRoute
+  '/provider/settings': typeof ProviderSettingsRoute
+  '/session/summary': typeof SessionSummaryRoute
+  '/talk/$id': typeof TalkIdRoute
+  '/provider/': typeof ProviderIndexRoute
+  '/session/call/$id': typeof SessionCallIdRoute
+  '/session/chat/$id': typeof SessionChatIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/profile'
+    | '/wallet'
+    | '/provider/earnings'
+    | '/provider/settings'
+    | '/session/summary'
+    | '/talk/$id'
+    | '/provider/'
+    | '/session/call/$id'
+    | '/session/chat/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/profile'
+    | '/wallet'
+    | '/provider/earnings'
+    | '/provider/settings'
+    | '/session/summary'
+    | '/talk/$id'
+    | '/provider'
+    | '/session/call/$id'
+    | '/session/chat/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/profile'
+    | '/wallet'
+    | '/provider/earnings'
+    | '/provider/settings'
+    | '/session/summary'
+    | '/talk/$id'
+    | '/provider/'
+    | '/session/call/$id'
+    | '/session/chat/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ProfileRoute: typeof ProfileRoute
+  WalletRoute: typeof WalletRoute
+  ProviderEarningsRoute: typeof ProviderEarningsRoute
+  ProviderSettingsRoute: typeof ProviderSettingsRoute
+  SessionSummaryRoute: typeof SessionSummaryRoute
+  TalkIdRoute: typeof TalkIdRoute
+  ProviderIndexRoute: typeof ProviderIndexRoute
+  SessionCallIdRoute: typeof SessionCallIdRoute
+  SessionChatIdRoute: typeof SessionChatIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,22 +169,84 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/wallet': {
+      id: '/wallet'
+      path: '/wallet'
+      fullPath: '/wallet'
+      preLoaderRoute: typeof WalletRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/provider/': {
+      id: '/provider/'
+      path: '/provider'
+      fullPath: '/provider/'
+      preLoaderRoute: typeof ProviderIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/provider/earnings': {
+      id: '/provider/earnings'
+      path: '/provider/earnings'
+      fullPath: '/provider/earnings'
+      preLoaderRoute: typeof ProviderEarningsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/provider/settings': {
+      id: '/provider/settings'
+      path: '/provider/settings'
+      fullPath: '/provider/settings'
+      preLoaderRoute: typeof ProviderSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/session/summary': {
+      id: '/session/summary'
+      path: '/session/summary'
+      fullPath: '/session/summary'
+      preLoaderRoute: typeof SessionSummaryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/talk/$id': {
+      id: '/talk/$id'
+      path: '/talk/$id'
+      fullPath: '/talk/$id'
+      preLoaderRoute: typeof TalkIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/session/call/$id': {
+      id: '/session/call/$id'
+      path: '/session/call/$id'
+      fullPath: '/session/call/$id'
+      preLoaderRoute: typeof SessionCallIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/session/chat/$id': {
+      id: '/session/chat/$id'
+      path: '/session/chat/$id'
+      fullPath: '/session/chat/$id'
+      preLoaderRoute: typeof SessionChatIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ProfileRoute: ProfileRoute,
+  WalletRoute: WalletRoute,
+  ProviderEarningsRoute: ProviderEarningsRoute,
+  ProviderSettingsRoute: ProviderSettingsRoute,
+  SessionSummaryRoute: SessionSummaryRoute,
+  TalkIdRoute: TalkIdRoute,
+  ProviderIndexRoute: ProviderIndexRoute,
+  SessionCallIdRoute: SessionCallIdRoute,
+  SessionChatIdRoute: SessionChatIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
