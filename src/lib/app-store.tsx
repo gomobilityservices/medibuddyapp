@@ -439,7 +439,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       setCurrentUser(merged);
 
-      const profilePatch: Record<string, unknown> = {};
+      const profilePatch: any = {};
       if (data.name !== undefined) profilePatch.name = data.name;
       if (data.gender !== undefined && currentUser.role === "customer") profilePatch.gender = data.gender;
       if (data.photo !== undefined && currentUser.role === "customer") profilePatch.photo = data.photo;
@@ -450,7 +450,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
 
         if (currentUser.role === "provider") {
-          const listingPatch: Record<string, unknown> = {};
+          const listingPatch: any = {};
           if (data.name !== undefined) listingPatch.name = data.name;
           if (data.username !== undefined) listingPatch.username = data.username;
           if (data.photo !== undefined) listingPatch.photo = data.photo;
