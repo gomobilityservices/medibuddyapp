@@ -46,8 +46,6 @@ export function AuthPage() {
       const success = await login(email, password);
       if (success) {
         toast.success("Welcome back!");
-      } else {
-        toast.error("Invalid email or password");
       }
     } else {
       // Sign up
@@ -87,8 +85,6 @@ export function AuthPage() {
       const success = await signUp(email, password, role, profileData);
       if (success) {
         toast.success("Account created successfully!");
-      } else {
-        toast.error("Could not create account. This email may already be registered.");
       }
     }
   };
@@ -152,6 +148,27 @@ export function AuthPage() {
               Register
             </button>
           </div>
+
+          {/* Demo Login Alert */}
+          {mode === "login" && (
+            <div className="mb-5 rounded-2xl bg-primary/10 border border-primary/20 p-3 text-[11px] text-primary font-medium flex flex-col gap-1.5 animate-fade-in">
+              <span className="font-bold flex items-center gap-1">🔑 Live Demo Accounts (Click to auto-fill):</span>
+              <button 
+                type="button" 
+                onClick={() => { setEmail("customer@demo.com"); setPassword("password123"); }} 
+                className="text-left underline hover:text-emerald-700 font-semibold cursor-pointer"
+              >
+                👤 Customer: customer@demo.com / password123
+              </button>
+              <button 
+                type="button" 
+                onClick={() => { setEmail("provider@demo.com"); setPassword("password123"); }} 
+                className="text-left underline hover:text-emerald-700 font-semibold cursor-pointer"
+              >
+                💼 Provider: provider@demo.com / password123
+              </button>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Common Auth Fields */}

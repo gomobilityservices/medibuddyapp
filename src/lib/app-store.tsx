@@ -211,10 +211,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   // ---------------------------------------------------------------- loaders
   const loadProviders = useCallback(async () => {
-    const [{ data: rows }, { data: reviewRows }] = await Promise.all([
-      supabase.from("providers").select("*").order("created_at", { ascending: true }),
-      supabase.from("reviews").select("*").order("created_at", { ascending: false }),
-    ]);
+    let rows: any[] | null = null;
+    let reviewRows: any[] | null = null;
+    try {
+      const res = await Promise.all([
+        supabase.from("providers").select("*").order("created_at", { ascending: true }),
+        supabase.from("reviews").select("*").order("created_at", { ascending: false }),
+      ]);
+      rows = res[0].data;
+      reviewRows = res[1].data;
+    } catch (e) {
+      console.warn("Failed to fetch from Supabase, loading mock data fallback:", e);
+    }
+
+    if (!rows || rows.length === 0) {
+      const { mockProviders } = await import("./mock-data");
+      setProviders(mockProviders);
+      return;
+    }
+
     const byProvider = new Map<string, Review[]>();
     (reviewRows ?? []).forEach((r: any) => {
       const list = byProvider.get(r.provider_id) ?? [];
@@ -335,36 +350,50 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [loadProviders, loadUser]);
 
   // ---------------------------------------------------------------- boot
+  // Load initial session and check status on boot
   useEffect(() => {
     let active = true;
+    let sub: any = null;
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
-      if (!active) return;
-      if (event === "SIGNED_OUT") {
-        setUserId(null);
-        setCurrentUser(null);
-        setSession(null);
-        setLastSummary(null);
-        return;
-      }
-      setUserId(s?.user?.id ?? null);
-    });
+    try {
+      const authRes = supabase.auth.onAuthStateChange((event, s) => {
+        if (!active) return;
+        if (event === "SIGNED_OUT") {
+          setUserId(null);
+          setCurrentUser(null);
+          setSession(null);
+          setLastSummary(null);
+          return;
+        }
+        setUserId(s?.user?.id ?? null);
+      });
+      sub = authRes.data;
+    } catch (e) {
+      console.warn("Supabase auth state change subscription failed:", e);
+    }
 
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!active) return;
-      await loadProviders();
-      const user = data.session?.user;
-      if (user) {
-        setUserId(user.id);
-        await loadUser(user.id, user.email ?? "");
+      try {
+        await loadProviders();
+        const { data } = await supabase.auth.getSession();
+        if (!active) return;
+        const user = data.session?.user;
+        if (user) {
+          setUserId(user.id);
+          await loadUser(user.id, user.email ?? "");
+        }
+      } catch (e) {
+        console.warn("Supabase session fetching failed on boot:", e);
+      } finally {
+        if (active) setLoading(false);
       }
-      if (active) setLoading(false);
     })();
 
     return () => {
       active = false;
-      sub.subscription.unsubscribe();
+      if (sub && sub.subscription) {
+        sub.subscription.unsubscribe();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -372,11 +401,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   // reload the profile whenever the signed-in user changes
   useEffect(() => {
     if (!userId) return;
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      const user = data.session?.user;
-      if (user) await loadUser(user.id, user.email ?? "");
+    if (userId.startsWith("demo_")) {
       setLoading(false);
+      return;
+    }
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const user = data.session?.user;
+        if (user) await loadUser(user.id, user.email ?? "");
+      } catch (e) {
+        console.warn("Supabase reload user session failed:", e);
+      } finally {
+        setLoading(false);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -407,12 +445,87 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const options: any = { data: metadata };
       if (typeof window !== "undefined") options.emailRedirectTo = window.location.origin;
 
-      const { data, error } = await supabase.auth.signUp({ email, password, options });
-      if (error) return false;
-      if (data.session?.user) {
-        setUserId(data.session.user.id);
-        await loadProviders();
+      try {
+        const { data, error } = await supabase.auth.signUp({ email, password, options });
+        if (!error && data.user) {
+          if (!data.session) {
+            toast.info("Supabase account created! Verification email sent.");
+          } else if (data.session?.user) {
+            setUserId(data.session.user.id);
+            await loadProviders();
+          }
+          return true;
+        }
+      } catch (e) {
+        console.warn("Supabase signup failed, falling back to local signup:", e);
       }
+
+      // Local storage auth database fallback
+      const LOCAL_USERS_KEY = "minute_local_users_db";
+      const localUsers = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || "{}");
+      if (localUsers[email]) {
+        toast.error("This email is already registered locally.");
+        return false;
+      }
+
+      const localId = `local_${Date.now()}`;
+      let profile: any = {};
+      if (role === "customer") {
+        profile = {
+          id: localId,
+          role: "customer",
+          email,
+          name: profileData.name || "Customer",
+          gender: profileData.gender || "Everyone",
+          photo: profileData.photo || `https://api.dicebear.com/7.x/adventurer/svg?seed=${localId}`,
+          balance: 0.0,
+          transactions: [],
+          savedProviders: [],
+          recentChats: [],
+          recentCalls: [],
+        };
+      } else {
+        profile = {
+          id: localId,
+          listingId: localId,
+          role: "provider",
+          email,
+          name: profileData.name || "Provider",
+          username: profileData.username || `user_${localId}`,
+          photo: profileData.photo || `https://api.dicebear.com/7.x/bottts/svg?seed=${localId}`,
+          gender: profileData.gender || "female",
+          languages: profileData.languages || ["English"],
+          area: profileData.area || "",
+          description: profileData.description || "",
+          categories: profileData.categories || ["General Chat"],
+          experience: profileData.experience || "",
+          rateCall: profileData.rateCall || 1.5,
+          rateChat: profileData.rateChat || 1.0,
+          preferredCustomerGender: profileData.preferredCustomerGender || "everyone",
+          walletBalance: 0.0,
+          totalEarnings: 0.0,
+          pendingEarnings: 0.0,
+          transactions: [],
+          withdrawals: [],
+          rating: 5.0,
+          reviews: 0,
+          reviewsList: [],
+          available: true,
+          sessions: 0,
+          responseSec: 15,
+        };
+
+        // Add new provider to active listing list
+        setProviders((prev) => [...prev, profile]);
+      }
+
+      localUsers[email] = { password, role, profile };
+      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
+      
+      // Log in local user
+      setUserId(localId);
+      setCurrentUser(profile);
+      toast.success("Local account created successfully!");
       return true;
     },
     [loadProviders]
@@ -420,11 +533,87 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string): Promise<boolean> => {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error || !data.user) return false;
-      await loadProviders();
-      setUserId(data.user.id);
-      return true;
+      // Demo accounts for local testing bypass
+      if (email === "customer@demo.com" && password === "password123") {
+        await loadProviders();
+        setUserId("demo_customer_id");
+        setCurrentUser({
+          id: "demo_customer_id",
+          role: "customer",
+          email: "customer@demo.com",
+          name: "Riya Sharma (Demo Customer)",
+          gender: "Woman",
+          photo: "https://api.dicebear.com/7.x/adventurer/svg?seed=riya",
+          balance: 250.0,
+          transactions: [],
+          savedProviders: [],
+          recentChats: [],
+          recentCalls: [],
+        });
+        return true;
+      }
+      if (email === "provider@demo.com" && password === "password123") {
+        await loadProviders();
+        setUserId("demo_provider_id");
+        setCurrentUser({
+          id: "demo_provider_id",
+          listingId: "1",
+          role: "provider",
+          email: "provider@demo.com",
+          name: "Ava Roy (Demo Provider)",
+          username: "ava_r",
+          photo: "https://api.dicebear.com/7.x/bottts/svg?seed=ava",
+          gender: "female",
+          languages: ["English", "Hindi"],
+          area: "Bandra West",
+          description: "Friendly chat, life coaching, or general listening session.",
+          categories: ["General Chat"],
+          experience: "4 years",
+          rateCall: 1.5,
+          rateChat: 1.0,
+          preferredCustomerGender: "everyone",
+          walletBalance: 120.0,
+          totalEarnings: 840.0,
+          pendingEarnings: 0.0,
+          transactions: [],
+          withdrawals: [],
+          rating: 4.8,
+          reviews: 12,
+          reviewsList: [],
+          available: true,
+          sessions: 42,
+          responseSec: 15,
+        });
+        return true;
+      }
+
+      // Check local storage auth database
+      const LOCAL_USERS_KEY = "minute_local_users_db";
+      const localUsers = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || "{}");
+      if (localUsers[email] && localUsers[email].password === password) {
+        await loadProviders();
+        const localUser = localUsers[email];
+        setUserId(localUser.profile.id);
+        setCurrentUser(localUser.profile);
+        toast.success("Welcome back!");
+        return true;
+      }
+
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (!error && data.user) {
+          await loadProviders();
+          setUserId(data.user.id);
+          return true;
+        }
+        if (error) {
+          console.error("Login error:", error);
+          toast.error(error.message);
+        }
+      } catch (e) {
+        console.warn("Supabase sign-in failed, checking offline status:", e);
+      }
+      return false;
     },
     [loadProviders]
   );
