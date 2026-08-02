@@ -58,11 +58,11 @@ function TalkDetail() {
   function confirm() {
     if (!pending) return;
     const mode = pending;
-    startSession(provider.id, mode);
+    startSession(provider!.id, mode);
     setPending(null);
     navigate({
       to: mode === "call" ? "/session/call/$id" : "/session/chat/$id",
-      params: { id: provider.id },
+      params: { id: provider!.id },
     });
   }
 

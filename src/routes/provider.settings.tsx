@@ -226,7 +226,7 @@ function ProviderSettings() {
       <Field label="Your gender">
         <div className="flex flex-wrap gap-2">
           {["Woman", "Man", "Non-binary"].map((g) => (
-            <Pill key={g} label={g} active={gender.toLowerCase() === g.toLowerCase()} onClick={() => setGender(g.toLowerCase())} />
+            <Pill key={g} label={g} active={gender.toLowerCase() === g.toLowerCase()} onClick={() => setGender(g.toLowerCase() as typeof gender)} />
           ))}
         </div>
       </Field>
