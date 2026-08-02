@@ -324,8 +324,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     await loadProviders();
-    const { data } = await supabase.auth.getUser();
-    if (data.user) await loadUser(data.user.id, data.user.email ?? "");
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user;
+    if (user) await loadUser(user.id, user.email ?? "");
   }, [loadProviders, loadUser]);
 
   // ---------------------------------------------------------------- boot
@@ -345,12 +346,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     });
 
     (async () => {
-      const { data } = await supabase.auth.getUser();
+      const { data } = await supabase.auth.getSession();
       if (!active) return;
       await loadProviders();
-      if (data.user) {
-        setUserId(data.user.id);
-        await loadUser(data.user.id, data.user.email ?? "");
+      const user = data.session?.user;
+      if (user) {
+        setUserId(user.id);
+        await loadUser(user.id, user.email ?? "");
       }
       if (active) setLoading(false);
     })();
@@ -366,8 +368,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!userId) return;
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data.user) await loadUser(data.user.id, data.user.email ?? "");
+      const { data } = await supabase.auth.getSession();
+      const user = data.session?.user;
+      if (user) await loadUser(user.id, user.email ?? "");
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
