@@ -67,7 +67,7 @@ function ProviderDashboard() {
   const reviewsList = dbProvider ? dbProvider.reviewsList : profile.reviewsList;
   const rating = dbProvider ? dbProvider.rating : profile.rating;
 
-  const handleWithdraw = () => {
+  const handleWithdraw = async () => {
     const amt = parseFloat(withdrawAmt);
     if (isNaN(amt) || amt <= 0) {
       toast.error("Please enter a valid positive amount");
@@ -78,7 +78,7 @@ function ProviderDashboard() {
       return;
     }
 
-    const success = withdrawEarnings(amt);
+    const success = await withdrawEarnings(amt);
     if (success) {
       toast.success(`Withdrawal request of ${money(amt)} submitted!`);
       setWithdrawOpen(false);

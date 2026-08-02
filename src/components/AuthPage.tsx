@@ -35,7 +35,7 @@ export function AuthPage() {
   const [providerPreferredGender, setProviderPreferredGender] = useState<"male" | "female" | "everyone">("everyone");
   const [providerPhoto, setProviderPhoto] = useState("https://api.dicebear.com/7.x/bottts/svg?seed=ava");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       toast.error("Please fill in email and password");
@@ -43,7 +43,7 @@ export function AuthPage() {
     }
 
     if (mode === "login") {
-      const success = login(email, password);
+      const success = await login(email, password);
       if (success) {
         toast.success("Welcome back!");
       } else {
@@ -84,11 +84,11 @@ export function AuthPage() {
         };
       }
 
-      const success = signUp(email, password, role, profileData);
+      const success = await signUp(email, password, role, profileData);
       if (success) {
         toast.success("Account created successfully!");
       } else {
-        toast.error("Email is already registered!");
+        toast.error("Could not create account. This email may already be registered.");
       }
     }
   };
