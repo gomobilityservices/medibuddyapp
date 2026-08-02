@@ -203,6 +203,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<ActiveSession | null>(null);
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
   const endingRef = useRef(false);
+  const sessionRef = useRef<ActiveSession | null>(null);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   // ---------------------------------------------------------------- loaders
   const loadProviders = useCallback(async () => {
