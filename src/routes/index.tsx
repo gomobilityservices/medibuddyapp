@@ -34,9 +34,7 @@ const genderFilters = [
 ] as const;
 
 function Discover() {
-  const store = useStore();
-  console.log("STORE KEYS", Object.keys(store), Array.isArray(store.providers));
-  const { balance, providers } = store;
+  const { balance, providers } = useStore();
   const [query, setQuery] = useState("");
   const [gender, setGender] = useState<(typeof genderFilters)[number]["key"]>("all");
   const [language, setLanguage] = useState<string | null>(null);
