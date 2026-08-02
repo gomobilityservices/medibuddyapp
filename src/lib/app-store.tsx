@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { type Provider, type Review, type Gender } from "./mock-data";
 import p1 from "@/assets/p1.jpg";
@@ -225,8 +226,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
 
     if (!rows || rows.length === 0) {
-      const { mockProviders } = await import("./mock-data");
-      setProviders(mockProviders);
+      const { providers: mockProviders } = await import("./mock-data");
+      setProviders(mockProviders ?? []);
       return;
     }
 
@@ -283,8 +284,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         balance: num(profile.balance),
         transactions,
         savedProviders: (savedRows ?? []).map((r: any) => r.provider_id),
-        recentChats: history.filter((h) => h.mode === "chat").map(({ mode, ...rest }) => rest),
-        recentCalls: history.filter((h) => h.mode === "call").map(({ mode, ...rest }) => rest),
+        recentChats: history.filter((h: any) => h.mode === "chat").map(({ mode, ...rest }: any) => rest),
+        recentCalls: history.filter((h: any) => h.mode === "call").map(({ mode, ...rest }: any) => rest),
       });
       return;
     }
@@ -356,7 +357,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     let sub: any = null;
 
     try {
-      const authRes = supabase.auth.onAuthStateChange((event, s) => {
+      const authRes = supabase.auth.onAuthStateChange((event: any, s: any) => {
         if (!active) return;
         if (event === "SIGNED_OUT") {
           setUserId(null);
@@ -571,6 +572,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           experience: "4 years",
           rateCall: 1.5,
           rateChat: 1.0,
+          rate: 1.0,
           preferredCustomerGender: "everyone",
           walletBalance: 120.0,
           totalEarnings: 840.0,
